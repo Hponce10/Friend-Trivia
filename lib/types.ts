@@ -14,16 +14,55 @@ export interface GameSettings {
   pointScale: number[];
 }
 
+// The live question, shared through Firestore so the stage (TV) and the
+// host console (phone) render and control the same moment in the game.
+export type StageStep =
+  | 'wc_reveal'
+  | 'dd_pick'
+  | 'dd_wager'
+  | 'swap_pick'
+  | 'question'
+  | 'steal_pick';
+
+export interface StageState {
+  activeTileId: string;
+  step: StageStep;
+  answerRevealed: boolean;
+  ddPlayerId: string | null;
+  ddWager: number;
+  stealWinnerId: string | null;
+  swapPickerId: string | null;
+  lockedOut: string[]; // playerIds who answered wrong this question
+  timerEndsAt: number | null; // wall-clock deadline while running
+  timerRemaining: number; // seconds, meaningful while paused
+  timerDuration: number;
+}
+
+// Final round, shared the same way. Wagers come from each player's phone.
+export interface FinalRoundState {
+  step: 'wagers' | 'question' | 'judging';
+  questionText: string;
+  answerText: string;
+  poolId: string | null;
+}
+
 export interface Game {
   roomCode: string;
   status: GameStatus;
   settings: GameSettings;
   createdAt: number;
   finalRoundQuestionId?: string | null;
+  // Secret that gates the host console (/console/CODE?key=…).
+  hostKey?: string;
   // Phone-buzzer state: armed while a question is open; the round number
   // groups buzzes so stale buzzes from earlier questions never leak in.
   buzzerArmed?: boolean;
   buzzerRound?: number;
+  stage?: StageState | null;
+  finalRound?: FinalRoundState | null;
+  // Last scoring win — the stage watches this to play victory anthems,
+  // no matter which surface (stage or console) did the judging.
+  lastWin?: { playerId: string; at: number } | null;
 }
 
 // A press of the big red button, ordered by server timestamp for fairness.
@@ -67,6 +106,8 @@ export interface Player {
   // Small center-cropped JPEG data URL (~20KB) captured at submission —
   // stored inline on the doc so no Firebase Storage setup is needed.
   photo?: string | null;
+  // Final-round wager, submitted from the player's own phone.
+  finalWager?: number | null;
 }
 
 export interface Question {

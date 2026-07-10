@@ -22,10 +22,11 @@ export default function ProgressTracker({ game, players, questions }: Props) {
   // window isn't available during SSR; set the URL after mount (deferred a
   // frame to avoid a synchronous setState-in-effect render cascade).
   useEffect(() => {
-    const id = requestAnimationFrame(() =>
-      setSubmitUrl(`${window.location.origin}/submit/${game.roomCode}`)
+    const id = setTimeout(
+      () => setSubmitUrl(`${window.location.origin}/submit/${game.roomCode}`),
+      0
     );
-    return () => cancelAnimationFrame(id);
+    return () => clearTimeout(id);
   }, [game.roomCode]);
 
   // A player doc only exists once they submit, so everyone listed is in.

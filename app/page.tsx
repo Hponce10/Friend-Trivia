@@ -46,6 +46,9 @@ export default function Home() {
     setError(null);
     try {
       const game = await createGame();
+      if (game.hostKey) {
+        localStorage.setItem(`ft-hostkey-${game.roomCode}`, game.hostKey);
+      }
       router.push(`/host/${game.roomCode}`);
     } catch {
       setError('Could not create game. Check your connection and try again.');

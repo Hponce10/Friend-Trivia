@@ -2,15 +2,15 @@
 
 import { useState } from 'react';
 import { Game, Player, Question, Tile, WildcardType } from '@/lib/types';
+import { updateStage, closeStage, updateQuestion } from '@/lib/db';
 import {
-  resolveNormal,
-  resolveDailyDouble,
-  resolveDoubleOrNothing,
-  resolveSteal,
-  resolveSwap,
-} from '@/lib/gameLogic';
-import { updatePlayerScore, updateTile, markQuestionUsed, updateQuestion } from '@/lib/db';
-import { playAnthem } from '@/lib/anthem';
+  judgeCorrect,
+  judgeWrong,
+  judgeSteal,
+  judgeStealSkip,
+  performSwap,
+  nobodyGotIt,
+} from '@/lib/judging';
 import WagerInput from './WagerInput';
 import Timer from './Timer';
 import BuzzerPanel from './BuzzerPanel';
@@ -20,18 +20,10 @@ interface Props {
   tile: Tile;
   question: Question;
   players: Player[];
-  onClose: () => void;
+  onClose?: () => void; // optional local cleanup; stage close is shared
 }
 
-type Step =
-  | 'wildcard_reveal'
-  | 'swap_pick'
-  | 'dd_pick_player'
-  | 'dd_wager'
-  | 'question'
-  | 'steal_pick';
-
-const WILDCARD_INFO: Record<
+export const WILDCARD_INFO: Record<
   WildcardType,
   { title: string; emoji: string; blurb: string; world: string; button: string }
 > = {
@@ -65,120 +57,34 @@ const WILDCARD_INFO: Record<
   },
 };
 
-export default function QuestionModal({ game, tile, question, players, onClose }: Props) {
+// The stage rendering of the live question. All interactive state lives in
+// game.stage (Firestore), so the host console and this screen always agree —
+// buttons here keep working for single-screen setups.
+export default function QuestionModal({ game, tile, question, players }: Props) {
+  const stage = game.stage!;
   const wildcard = tile.wildcardType;
-  const [step, setStep] = useState<Step>(wildcard ? 'wildcard_reveal' : 'question');
-  const [showAnswer, setShowAnswer] = useState(false);
-  const [lockedOut, setLockedOut] = useState<Set<string>>(new Set());
   const [resolving, setResolving] = useState(false);
-  const [ddPlayerId, setDdPlayerId] = useState<string | null>(null);
-  const [ddWager, setDdWager] = useState(0);
-  const [stealWinnerId, setStealWinnerId] = useState<string | null>(null);
-  const [swapAId, setSwapAId] = useState<string | null>(null);
   const [editingAnswer, setEditingAnswer] = useState(false);
   const [answerDraft, setAnswerDraft] = useState(question.answer);
 
   const owner = players.find((p) => p.id === tile.ownerPlayerId);
-  const ddPlayer = players.find((p) => p.id === ddPlayerId);
+  const ddPlayer = players.find((p) => p.id === stage.ddPlayerId);
+  const roomCode = game.roomCode;
 
-  async function finishTile() {
-    await updateTile(tile.id, { status: 'used' });
-    await markQuestionUsed(question.id);
-    onClose();
-  }
-
-  async function handleWrong(player: Player) {
+  async function withResolving(fn: () => Promise<void>) {
     setResolving(true);
-    if (wildcard === 'daily_double') {
-      await updatePlayerScore(player.id, resolveDailyDouble(player.score, ddWager, false));
-      await finishTile();
-      return;
-    }
-    if (wildcard === 'double_or_nothing') {
-      await updatePlayerScore(
-        player.id,
-        resolveDoubleOrNothing(player.score, tile.pointValue, false)
-      );
-      await finishTile();
-      return;
-    }
-    const newScore = resolveNormal(
-      player.score,
-      tile.pointValue,
-      false,
-      game.settings.penaltyOnWrong
-    );
-    await updatePlayerScore(player.id, newScore);
-    setLockedOut((prev) => new Set(prev).add(player.id));
-    setResolving(false);
-  }
-
-  async function handleCorrect(player: Player) {
-    setResolving(true);
-    // Victory song — fire and forget; scoring never waits on audio.
-    void playAnthem(player.anthem);
-    if (wildcard === 'daily_double') {
-      await updatePlayerScore(player.id, resolveDailyDouble(player.score, ddWager, true));
-      await finishTile();
-      return;
-    }
-    if (wildcard === 'double_or_nothing') {
-      await updatePlayerScore(
-        player.id,
-        resolveDoubleOrNothing(player.score, tile.pointValue, true)
-      );
-      await finishTile();
-      return;
-    }
-    if (wildcard === 'steal') {
-      setStealWinnerId(player.id);
+    try {
+      await fn();
+    } finally {
       setResolving(false);
-      setStep('steal_pick');
-      return;
     }
-    await updatePlayerScore(player.id, resolveNormal(player.score, tile.pointValue, true, true));
-    await finishTile();
-  }
-
-  async function handleSteal(victim: Player, amount: number) {
-    const winner = players.find((p) => p.id === stealWinnerId);
-    if (!winner) return;
-    setResolving(true);
-    const result = resolveSteal(winner.score, victim.score, tile.pointValue, amount);
-    await updatePlayerScore(winner.id, result.answererScore);
-    await updatePlayerScore(victim.id, result.opponentScore);
-    await finishTile();
-  }
-
-  async function handleStealSkip() {
-    const winner = players.find((p) => p.id === stealWinnerId);
-    if (!winner) return;
-    setResolving(true);
-    await updatePlayerScore(winner.id, winner.score + tile.pointValue);
-    await finishTile();
-  }
-
-  async function handleSwap(playerB: Player) {
-    const playerA = players.find((p) => p.id === swapAId);
-    if (!playerA) return;
-    setResolving(true);
-    const [newA, newB] = resolveSwap(playerA.score, playerB.score);
-    await updatePlayerScore(playerA.id, newA);
-    await updatePlayerScore(playerB.id, newB);
-    setResolving(false);
-    setStep('question');
-  }
-
-  async function handleNobody() {
-    setResolving(true);
-    await finishTile();
   }
 
   const answeringPlayers =
     wildcard === 'daily_double' && ddPlayer ? [ddPlayer] : players;
 
   // Full-screen wildcard takeover — its own color world per type.
-  if (step === 'wildcard_reveal' && wildcard) {
+  if (stage.step === 'wc_reveal' && wildcard) {
     const info = WILDCARD_INFO[wildcard];
     return (
       <div className="anim-fade-in fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -192,13 +98,14 @@ export default function QuestionModal({ game, tile, question, players, onClose }
           <p className="max-w-md text-lg text-white/85">{info.blurb}</p>
           <button
             onClick={() =>
-              setStep(
-                wildcard === 'daily_double'
-                  ? 'dd_pick_player'
-                  : wildcard === 'swap'
-                    ? 'swap_pick'
-                    : 'question'
-              )
+              updateStage(roomCode, {
+                step:
+                  wildcard === 'daily_double'
+                    ? 'dd_pick'
+                    : wildcard === 'swap'
+                      ? 'swap_pick'
+                      : 'question',
+              })
             }
             className={`mt-4 rounded-2xl px-10 py-4 text-lg font-bold shadow-lg transition active:scale-[0.98] ${info.button}`}
           >
@@ -213,7 +120,7 @@ export default function QuestionModal({ game, tile, question, players, onClose }
     <div className="anim-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
       <div className="anim-pop-in relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-gradient-to-b from-indigo-900 to-indigo-950 p-6 text-white shadow-2xl ring-1 ring-indigo-700/60 sm:p-10">
         <button
-          onClick={onClose}
+          onClick={() => closeStage(roomCode)}
           aria-label="Cancel — keep this tile in play"
           title="Close without resolving; the tile stays on the board"
           className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-indigo-700 text-sm text-indigo-400 transition hover:bg-indigo-800 hover:text-white"
@@ -221,7 +128,7 @@ export default function QuestionModal({ game, tile, question, players, onClose }
           ✕
         </button>
 
-        {step === 'dd_pick_player' && (
+        {stage.step === 'dd_pick' && (
           <div className="anim-rise-in flex flex-col items-center gap-4">
             <h3 className="font-display text-2xl uppercase tracking-wide text-amber-400">
               Who picked this tile?
@@ -231,10 +138,9 @@ export default function QuestionModal({ game, tile, question, players, onClose }
               {players.map((p) => (
                 <li key={p.id}>
                   <button
-                    onClick={() => {
-                      setDdPlayerId(p.id);
-                      setStep('dd_wager');
-                    }}
+                    onClick={() =>
+                      updateStage(roomCode, { ddPlayerId: p.id, step: 'dd_wager' })
+                    }
                     className="w-full rounded-xl bg-indigo-800 px-4 py-3 font-medium ring-1 ring-white/5 transition hover:bg-indigo-700 active:scale-[0.98]"
                   >
                     {p.name} <span className="font-mono text-indigo-400">({p.score})</span>
@@ -245,7 +151,7 @@ export default function QuestionModal({ game, tile, question, players, onClose }
           </div>
         )}
 
-        {step === 'dd_wager' && ddPlayer && (
+        {stage.step === 'dd_wager' && ddPlayer && (
           <div className="anim-rise-in flex flex-col items-center gap-4">
             <h3 className="font-display text-2xl uppercase tracking-wide text-amber-400">
               {ddPlayer.name}, place your wager
@@ -253,34 +159,37 @@ export default function QuestionModal({ game, tile, question, players, onClose }
             <WagerInput
               label="Wager"
               max={Math.max(ddPlayer.score, tile.pointValue)}
-              onConfirm={(amount) => {
-                setDdWager(amount);
-                setStep('question');
-              }}
+              onConfirm={(amount) =>
+                updateStage(roomCode, { ddWager: amount, step: 'question' })
+              }
             />
           </div>
         )}
 
-        {step === 'swap_pick' && (
+        {stage.step === 'swap_pick' && (
           <div className="anim-rise-in flex flex-col items-center gap-4">
             <h3 className="font-display text-2xl uppercase tracking-wide text-amber-400">
-              {swapAId === null ? 'Who picked this tile?' : 'Swap scores with…'}
+              {stage.swapPickerId === null ? 'Who picked this tile?' : 'Swap scores with…'}
             </h3>
             <p className="text-sm text-indigo-400">
-              {swapAId === null
+              {stage.swapPickerId === null
                 ? 'The picker may force a score swap before the question plays.'
                 : 'Pick an opponent — their scores trade places.'}
             </p>
             <ul className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
               {players
-                .filter((p) => p.id !== swapAId)
+                .filter((p) => p.id !== stage.swapPickerId)
                 .map((p) => (
                   <li key={p.id}>
                     <button
                       disabled={resolving}
                       onClick={() => {
-                        if (swapAId === null) setSwapAId(p.id);
-                        else handleSwap(p);
+                        if (stage.swapPickerId === null) {
+                          updateStage(roomCode, { swapPickerId: p.id });
+                        } else {
+                          const picker = players.find((x) => x.id === stage.swapPickerId);
+                          if (picker) withResolving(() => performSwap(game, picker, p));
+                        }
                       }}
                       className="w-full rounded-xl bg-indigo-800 px-4 py-3 font-medium ring-1 ring-white/5 transition hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50"
                     >
@@ -290,7 +199,7 @@ export default function QuestionModal({ game, tile, question, players, onClose }
                 ))}
             </ul>
             <button
-              onClick={() => setStep('question')}
+              onClick={() => updateStage(roomCode, { step: 'question' })}
               className="text-sm text-indigo-400 underline-offset-4 hover:text-indigo-300 hover:underline"
             >
               Skip the swap — play the question
@@ -298,12 +207,12 @@ export default function QuestionModal({ game, tile, question, players, onClose }
           </div>
         )}
 
-        {step === 'question' && (
+        {stage.step === 'question' && (
           <div className="anim-rise-in">
             {/* Kicker */}
             <p className="text-center text-xs font-semibold uppercase tracking-[0.25em] text-amber-400/90">
               About {owner?.name ?? '???'} · {tile.pointValue}
-              {wildcard === 'daily_double' && ` · wager ${ddWager}`}
+              {wildcard === 'daily_double' && ` · wager ${stage.ddWager}`}
               {wildcard === 'double_or_nothing' && ' · double or nothing'}
               {wildcard === 'steal' && ' · steal'}
             </p>
@@ -314,13 +223,18 @@ export default function QuestionModal({ game, tile, question, players, onClose }
             </p>
 
             <div className="mt-6 flex justify-center">
-              <Timer />
+              <Timer
+                endsAt={stage.timerEndsAt}
+                remaining={stage.timerRemaining}
+                duration={stage.timerDuration}
+                onChange={(u) => updateStage(roomCode, u)}
+              />
             </div>
 
-            <BuzzerPanel game={game} />
+            <BuzzerPanel game={game} withSound />
 
             <div className="mt-6 flex min-h-14 items-center justify-center gap-2">
-              {showAnswer ? (
+              {stage.answerRevealed ? (
                 editingAnswer ? (
                   <span className="anim-fade-in flex items-center gap-2">
                     <input
@@ -360,7 +274,7 @@ export default function QuestionModal({ game, tile, question, players, onClose }
                 )
               ) : (
                 <button
-                  onClick={() => setShowAnswer(true)}
+                  onClick={() => updateStage(roomCode, { answerRevealed: true })}
                   className="rounded-2xl border-2 border-amber-400/70 px-8 py-3 text-lg font-semibold text-amber-300 transition hover:bg-amber-400/10 active:scale-[0.98]"
                 >
                   Reveal answer
@@ -371,12 +285,12 @@ export default function QuestionModal({ game, tile, question, players, onClose }
             {/* Resolution — de-emphasized until the answer is out */}
             <div
               className={`mt-8 transition-opacity duration-300 ${
-                showAnswer ? 'opacity-100' : 'opacity-50'
+                stage.answerRevealed ? 'opacity-100' : 'opacity-50'
               }`}
             >
               <p className="text-center text-xs uppercase tracking-widest text-indigo-400">
                 {wildcard === 'daily_double' && ddPlayer
-                  ? `${ddPlayer.name} answers alone · ✓ +${ddWager} · ✗ −${ddWager}`
+                  ? `${ddPlayer.name} answers alone · ✓ +${stage.ddWager} · ✗ −${stage.ddWager}`
                   : wildcard === 'double_or_nothing'
                     ? `First to buzz · ✓ +${2 * tile.pointValue} · ✗ −${2 * tile.pointValue} · one attempt`
                     : wildcard === 'steal'
@@ -388,22 +302,22 @@ export default function QuestionModal({ game, tile, question, players, onClose }
                   <li
                     key={p.id}
                     className={`flex items-center justify-between rounded-xl bg-indigo-800/80 px-4 py-2 ring-1 ring-white/5 transition-opacity ${
-                      lockedOut.has(p.id) ? 'opacity-35' : ''
+                      stage.lockedOut.includes(p.id) ? 'opacity-35' : ''
                     }`}
                   >
                     <span className="truncate font-medium">{p.name}</span>
                     <span className="flex shrink-0 gap-2">
                       <button
-                        onClick={() => handleWrong(p)}
-                        disabled={resolving || lockedOut.has(p.id)}
+                        onClick={() => withResolving(() => judgeWrong(game, tile, question, p))}
+                        disabled={resolving || stage.lockedOut.includes(p.id)}
                         className="flex h-11 w-11 items-center justify-center rounded-full bg-red-700/90 font-bold transition hover:bg-red-600 hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:hover:scale-100"
                         aria-label={`${p.name} wrong`}
                       >
                         ✗
                       </button>
                       <button
-                        onClick={() => handleCorrect(p)}
-                        disabled={resolving || lockedOut.has(p.id)}
+                        onClick={() => withResolving(() => judgeCorrect(game, tile, question, p))}
+                        disabled={resolving || stage.lockedOut.includes(p.id)}
                         className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-600 font-bold transition hover:bg-emerald-500 hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:hover:scale-100"
                         aria-label={`${p.name} correct`}
                       >
@@ -415,7 +329,7 @@ export default function QuestionModal({ game, tile, question, players, onClose }
               </ul>
 
               <button
-                onClick={handleNobody}
+                onClick={() => withResolving(() => nobodyGotIt(game, tile, question))}
                 disabled={resolving}
                 className="mt-4 w-full rounded-xl border border-indigo-700 px-4 py-2.5 text-sm text-indigo-400 transition hover:bg-indigo-800/60 hover:text-indigo-200"
               >
@@ -425,13 +339,20 @@ export default function QuestionModal({ game, tile, question, players, onClose }
           </div>
         )}
 
-        {step === 'steal_pick' && (
+        {stage.step === 'steal_pick' && (
           <StealPicker
-            players={players.filter((p) => p.id !== stealWinnerId)}
+            players={players.filter((p) => p.id !== stage.stealWinnerId)}
             maxSteal={tile.pointValue}
             resolving={resolving}
-            onSteal={handleSteal}
-            onSkip={handleStealSkip}
+            onSteal={(victim, amount) => {
+              const winner = players.find((p) => p.id === stage.stealWinnerId);
+              if (winner)
+                withResolving(() => judgeSteal(game, tile, question, winner, victim, amount));
+            }}
+            onSkip={() => {
+              const winner = players.find((p) => p.id === stage.stealWinnerId);
+              if (winner) withResolving(() => judgeStealSkip(game, tile, question, winner));
+            }}
           />
         )}
       </div>

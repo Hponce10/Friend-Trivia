@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import HomeLink from '@/components/HomeLink';
 import { watchGame, watchPlayers, watchQuestions, watchTiles } from '@/lib/db';
 import { Game, Player, Question, Tile } from '@/lib/types';
@@ -12,7 +12,8 @@ import FinalRound from '@/components/host/FinalRound';
 import ResultsScreen from '@/components/host/ResultsScreen';
 import AdminPanel from '@/components/host/AdminPanel';
 import ShoutOverlay from '@/components/ShoutOverlay';
-import { updateGame } from '@/lib/db';
+import { updateGame, openTile } from '@/lib/db';
+import { playAnthem } from '@/lib/anthem';
 import { ensureSoundEnabled } from '@/lib/lpSound';
 
 export default function HostPage({
@@ -26,8 +27,8 @@ export default function HostPage({
   const [players, setPlayers] = useState<Player[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [tiles, setTiles] = useState<Tile[]>([]);
-  const [activeTileId, setActiveTileId] = useState<string | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
+  const lastWinAt = useRef<number | null>(null);
 
   useEffect(() => {
     const unsubs = [
@@ -44,6 +45,21 @@ export default function HostPage({
   const sortedPlayers = [...players].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
+
+  const winAt = game !== 'loading' && game !== null ? (game.lastWin?.at ?? null) : null;
+  useEffect(() => {
+    if (game === 'loading' || game === null || winAt === null) return;
+    if (lastWinAt.current === null) {
+      lastWinAt.current = winAt; // don't replay history on page load
+      return;
+    }
+    if (winAt !== lastWinAt.current) {
+      lastWinAt.current = winAt;
+      const winner = players.find((p) => p.id === game.lastWin?.playerId);
+      void playAnthem(winner?.anthem);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winAt]);
 
   const allTilesUsed =
     tiles.length > 0 && tiles.every((t) => t.status === 'used');
@@ -87,7 +103,10 @@ export default function HostPage({
       );
       break;
     case 'in_progress': {
-      const activeTile = tiles.find((t) => t.id === activeTileId) ?? null;
+      const stage = game.stage ?? null;
+      const activeTile = stage
+        ? tiles.find((t) => t.id === stage.activeTileId) ?? null
+        : null;
       const activeQuestion = activeTile
         ? questions.find((q) => q.id === activeTile.questionId) ?? null
         : null;
@@ -102,7 +121,7 @@ export default function HostPage({
               onTileClick={(tile) => {
                 // A host gesture: also unlocks WebAudio for the buzz ding.
                 ensureSoundEnabled();
-                setActiveTileId(tile.id);
+                void openTile(roomCode, tile, game.buzzerRound ?? 0);
               }}
             />
           </div>
@@ -118,14 +137,13 @@ export default function HostPage({
               Skip to final round →
             </button>
           </div>
-          {activeTile && activeQuestion && (
+          {stage && activeTile && activeQuestion && (
             <QuestionModal
               key={activeTile.id}
               game={game}
               tile={activeTile}
               question={activeQuestion}
               players={sortedPlayers}
-              onClose={() => setActiveTileId(null)}
             />
           )}
         </div>

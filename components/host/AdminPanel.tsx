@@ -62,6 +62,18 @@ export default function AdminPanel({ game, players, questions, tiles, onClose }:
           </button>
         </div>
 
+        {/* Host console */}
+        <section className="mt-6">
+          <h3 className="text-sm font-semibold uppercase tracking-widest text-indigo-400">
+            Host console
+          </h3>
+          <p className="mt-1 text-xs text-indigo-500">
+            A private remote for your phone: see answers before revealing,
+            judge from the buzz order, run wildcards and the final round.
+          </p>
+          <ConsoleLink game={game} />
+        </section>
+
         {/* Scores */}
         <section className="mt-6">
           <h3 className="text-sm font-semibold uppercase tracking-widest text-indigo-400">
@@ -192,6 +204,29 @@ export default function AdminPanel({ game, players, questions, tiles, onClose }:
         </section>
       </div>
     </div>
+  );
+}
+
+function ConsoleLink({ game }: { game: Game }) {
+  const [copied, setCopied] = useState(false);
+  // Older games predate host keys — the console accepts them keylessly.
+  const path = `/console/${game.roomCode}${game.hostKey ? `?key=${game.hostKey}` : ''}`;
+
+  return (
+    <button
+      onClick={async () => {
+        await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      className={`mt-2 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
+        copied
+          ? 'bg-emerald-500 text-white'
+          : 'border border-indigo-600 text-indigo-300 hover:bg-indigo-800/60 hover:text-white'
+      }`}
+    >
+      {copied ? '✓ Console link copied — open it on your phone' : '🎛 Copy console link'}
+    </button>
   );
 }
 

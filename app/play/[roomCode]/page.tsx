@@ -1,7 +1,8 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import { watchGame, watchPlayers, watchBuzzes, sendBuzz, sendShout } from '@/lib/db';
+import { watchGame, watchPlayers, watchBuzzes, sendBuzz, sendShout, setFinalWager } from '@/lib/db';
+import WagerInput from '@/components/host/WagerInput';
 import { Buzz, Game, Player } from '@/lib/types';
 import Avatar from '@/components/Avatar';
 import HomeLink from '@/components/HomeLink';
@@ -39,13 +40,12 @@ export default function PlayPage({
       watchPlayers(roomCode, setPlayers),
       watchBuzzes(roomCode, setBuzzes),
     ];
-    // localStorage isn't available during SSR; deferred a frame to keep
-    // the effect free of synchronous setState.
-    const id = requestAnimationFrame(() =>
-      setMyId(localStorage.getItem(`ft-player-${roomCode}`))
-    );
+    // localStorage isn't available during SSR; deferred via setTimeout to
+    // keep the effect free of synchronous setState (rAF would never fire
+    // in a throttled background tab).
+    const id = setTimeout(() => setMyId(localStorage.getItem(`ft-player-${roomCode}`)), 0);
     return () => {
-      cancelAnimationFrame(id);
+      clearTimeout(id);
       unsubs.forEach((u) => u());
     };
   }, [roomCode]);
@@ -173,6 +173,41 @@ export default function PlayPage({
           </p>
         </div>
       </header>
+
+      {/* Final round: secret wager from this phone */}
+      {game.status === 'final_round' && game.finalRound?.step === 'wagers' && (
+        <div className="anim-pop-in flex w-full max-w-sm flex-col items-center gap-4 rounded-3xl bg-indigo-900/70 p-6 ring-1 ring-amber-400/40">
+          <p className="font-display text-2xl uppercase tracking-wide text-amber-400">
+            Final Wager
+          </p>
+          {me.finalWager == null ? (
+            <>
+              <p className="text-center text-sm text-indigo-300">
+                Secretly wager up to your score. Correct wins it, wrong loses it.
+              </p>
+              <WagerInput
+                label="Your secret wager"
+                max={Math.max(me.score, 0)}
+                onConfirm={(amount) => setFinalWager(me.id, amount)}
+              />
+            </>
+          ) : (
+            <p className="text-lg font-semibold text-emerald-300">
+              🔒 Locked in: {me.finalWager}
+            </p>
+          )}
+        </div>
+      )}
+      {game.status === 'final_round' && game.finalRound?.step !== 'wagers' && (
+        <div className="anim-rise-in w-full max-w-sm rounded-3xl bg-indigo-900/70 p-6 text-center ring-1 ring-indigo-700/50">
+          <p className="font-display text-xl uppercase tracking-wide text-amber-400">
+            Final Wager
+          </p>
+          <p className="mt-2 text-sm text-indigo-300">
+            👀 Eyes on the big screen — answer out loud when the question shows!
+          </p>
+        </div>
+      )}
 
       {/* The buzzer */}
       <div className="anim-rise-in flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-4">

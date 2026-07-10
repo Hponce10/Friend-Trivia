@@ -19,10 +19,12 @@ import {
   Anthem,
   Buzz,
   DEFAULT_SETTINGS,
+  FinalRoundState,
   Game,
   Player,
   Question,
   Shout,
+  StageState,
   Tile,
 } from './types';
 
@@ -36,6 +38,14 @@ export function generateRoomCode(): string {
   return code;
 }
 
+function generateHostKey(): string {
+  let key = '';
+  for (let i = 0; i < 6; i++) {
+    key += ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
+  }
+  return key;
+}
+
 export async function createGame(): Promise<Game> {
   const roomCode = generateRoomCode();
   const game: Game = {
@@ -43,6 +53,10 @@ export async function createGame(): Promise<Game> {
     status: 'collecting_submissions',
     settings: DEFAULT_SETTINGS,
     createdAt: Date.now(),
+    hostKey: generateHostKey(),
+    stage: null,
+    finalRound: null,
+    lastWin: null,
   };
   await setDoc(doc(db, 'games', roomCode), game);
   return game;
@@ -199,6 +213,88 @@ export async function writeTiles(tiles: Omit<Tile, 'id'>[]): Promise<void> {
     batch.set(ref, { ...tile, id: ref.id });
   }
   await batch.commit();
+}
+
+/* ---- Shared stage state (drives both the TV stage and the console) ---- */
+
+function freshStage(tile: Tile): StageState {
+  return {
+    activeTileId: tile.id,
+    step: tile.wildcardType ? 'wc_reveal' : 'question',
+    answerRevealed: false,
+    ddPlayerId: null,
+    ddWager: 0,
+    stealWinnerId: null,
+    swapPickerId: null,
+    lockedOut: [],
+    timerEndsAt: null,
+    timerRemaining: 30,
+    timerDuration: 30,
+  };
+}
+
+// Open a tile: publish fresh stage state and arm the phone buzzers in the
+// same batch (sweeping stale buzz docs from earlier questions).
+export async function openTile(roomCode: string, tile: Tile, currentRound: number): Promise<void> {
+  const old = await getDocs(query(collection(db, 'buzzes'), where('roomCode', '==', roomCode)));
+  const batch = writeBatch(db);
+  old.docs.forEach((d) => batch.delete(d.ref));
+  batch.update(doc(db, 'games', roomCode), {
+    stage: freshStage(tile),
+    buzzerArmed: true,
+    buzzerRound: currentRound + 1,
+  });
+  await batch.commit();
+}
+
+export async function updateStage(
+  roomCode: string,
+  updates: Partial<StageState>
+): Promise<void> {
+  const dotted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(updates)) dotted[`stage.${k}`] = v;
+  await updateDoc(doc(db, 'games', roomCode), dotted);
+}
+
+export async function closeStage(roomCode: string): Promise<void> {
+  await updateDoc(doc(db, 'games', roomCode), { stage: null, buzzerArmed: false });
+}
+
+export async function recordWin(roomCode: string, playerId: string): Promise<void> {
+  await updateDoc(doc(db, 'games', roomCode), {
+    lastWin: { playerId, at: Date.now() },
+  });
+}
+
+/* ---- Final round (wagers come from player phones) ---- */
+
+export async function startFinalRound(
+  roomCode: string,
+  players: Player[],
+  question: { questionText: string; answerText: string; poolId: string | null }
+): Promise<void> {
+  const batch = writeBatch(db);
+  // Clear stale wagers from any previous attempt.
+  for (const p of players) {
+    batch.update(doc(db, 'players', p.id), { finalWager: null });
+  }
+  batch.update(doc(db, 'games', roomCode), {
+    finalRound: { step: 'wagers', ...question },
+  });
+  await batch.commit();
+}
+
+export async function updateFinalRound(
+  roomCode: string,
+  updates: Partial<FinalRoundState>
+): Promise<void> {
+  const dotted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(updates)) dotted[`finalRound.${k}`] = v;
+  await updateDoc(doc(db, 'games', roomCode), dotted);
+}
+
+export async function setFinalWager(playerId: string, amount: number): Promise<void> {
+  await updateDoc(doc(db, 'players', playerId), { finalWager: amount });
 }
 
 /* ---- Phone companion: buzzers & shouts ---- */

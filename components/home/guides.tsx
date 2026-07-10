@@ -185,9 +185,9 @@ export function PlayerGuide() {
           See the Game Rules guide for exactly how each one works.
         </Step>
         <Step n={4} title="The Final Wager decides it">
-          After the board clears, everyone secretly wagers up to their score on
-          one last question. The host passes their screen around to collect
-          wagers, then reveals everything at once. Comebacks happen here.
+          After the board clears, everyone secretly wagers up to their score
+          on one last question — <em>straight from your phone</em>. All wagers
+          reveal together at the end. Comebacks happen here.
         </Step>
       </Section>
     </>
@@ -233,7 +233,14 @@ export function HostGuide() {
           Scores stay pinned at the top; the board scrolls sideways if you have
           a big group.
         </Step>
-        <Step n={3} title="Optional: a second screen for the leaderboard">
+        <Step n={3} title="Grab the host console on your phone 🎛">
+          In the 🛠 panel, tap <strong>Copy console link</strong> and open it
+          on your phone. It&apos;s your private remote: <em>you see every
+          answer before the room does</em>, pick tiles, run the timer, judge
+          straight from the buzz order, and drive wildcards — all from the
+          couch. Whatever you do there, the TV follows instantly.
+        </Step>
+        <Step n={4} title="Optional: a second screen for the leaderboard">
           The 📊 button (bottom-right) opens a live leaderboard — player
           photos, rolling scores, and rank changes animating in real time.
           Open it on a second TV or laptop and tap{' '}
@@ -281,9 +288,10 @@ export function HostGuide() {
           The app draws one from the unused pool — reroll until you like it, or
           write your own on the spot.
         </Step>
-        <Step n={3} title="Collect secret wagers">
-          Pass your screen around; each player privately wagers up to their
-          current score (0 minimum — debt can&apos;t dig deeper here).
+        <Step n={3} title="Wagers arrive from everyone's phones">
+          Each player privately wagers up to their current score on their own
+          phone — the stage shows a live checklist of who&apos;s locked in
+          (and you can zero out anyone who wandered off).
         </Step>
         <Step n={4} title="Reveal and crown">
           Everyone answers out loud or on paper, you reveal the answer, mark

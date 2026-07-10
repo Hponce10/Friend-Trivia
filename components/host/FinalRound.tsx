@@ -3,8 +3,15 @@
 import { useMemo, useState } from 'react';
 import { Game, Player, Question } from '@/lib/types';
 import { pickFinalRoundQuestion, resolveDailyDouble } from '@/lib/gameLogic';
-import { updatePlayerScore, updateGame, markQuestionUsed } from '@/lib/db';
-import WagerInput from './WagerInput';
+import {
+  updatePlayerScore,
+  updateGame,
+  markQuestionUsed,
+  startFinalRound,
+  updateFinalRound,
+  setFinalWager,
+} from '@/lib/db';
+import Avatar from '@/components/Avatar';
 
 interface Props {
   game: Game;
@@ -12,18 +19,14 @@ interface Props {
   questions: Question[];
 }
 
-type Step = 'setup' | 'wagers' | 'question' | 'judging';
-
+// The Final Wager round, driven by game.finalRound so the stage and the
+// host console stay in sync. Wagers arrive live from each player's phone.
 export default function FinalRound({ game, players, questions }: Props) {
-  const [step, setStep] = useState<Step>('setup');
+  const fr = game.finalRound ?? null;
   const [rerollKey, setRerollKey] = useState(0);
   const [useCustom, setUseCustom] = useState(false);
   const [customText, setCustomText] = useState('');
   const [customAnswer, setCustomAnswer] = useState('');
-  const [finalQuestion, setFinalQuestion] = useState<{ text: string; answer: string; poolId: string | null } | null>(null);
-  const [wagers, setWagers] = useState<Record<string, number>>({});
-  const [wagerIndex, setWagerIndex] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
   const [verdicts, setVerdicts] = useState<Record<string, boolean>>({});
   const [resolving, setResolving] = useState(false);
 
@@ -31,31 +34,37 @@ export default function FinalRound({ game, players, questions }: Props) {
   const pooled = useMemo(() => pickFinalRoundQuestion(questions), [questions.length, rerollKey]);
 
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
-  const wagerPlayer = players[wagerIndex];
+  const locked = players.filter((p) => p.finalWager != null);
 
-  function startWagers() {
-    if (useCustom) {
-      setFinalQuestion({ text: customText.trim(), answer: customAnswer.trim(), poolId: null });
-    } else if (pooled) {
-      setFinalQuestion({ text: pooled.text, answer: pooled.answer, poolId: pooled.id });
-    }
-    setStep('wagers');
+  async function begin() {
+    const q = useCustom
+      ? { questionText: customText.trim(), answerText: customAnswer.trim(), poolId: null }
+      : pooled
+        ? { questionText: pooled.text, answerText: pooled.answer, poolId: pooled.id }
+        : null;
+    if (!q) return;
+    await startFinalRound(game.roomCode, players, q);
+  }
+
+  async function forceMissingToZero() {
+    await Promise.all(
+      players.filter((p) => p.finalWager == null).map((p) => setFinalWager(p.id, 0))
+    );
   }
 
   async function applyResults() {
+    if (!fr) return;
     setResolving(true);
     await Promise.all(
       players.map((p) =>
         updatePlayerScore(
           p.id,
-          resolveDailyDouble(p.score, wagers[p.id] ?? 0, verdicts[p.id] ?? false)
+          resolveDailyDouble(p.score, p.finalWager ?? 0, verdicts[p.id] ?? false)
         )
       )
     );
-    if (finalQuestion?.poolId) {
-      await markQuestionUsed(finalQuestion.poolId);
-    }
-    await updateGame(game.roomCode, { status: 'completed' });
+    if (fr.poolId) await markQuestionUsed(fr.poolId);
+    await updateGame(game.roomCode, { status: 'completed', finalRound: null });
   }
 
   return (
@@ -64,7 +73,8 @@ export default function FinalRound({ game, players, questions }: Props) {
         Final Wager
       </p>
 
-      {step === 'setup' && (
+      {/* Setup — pick the question */}
+      {fr === null && (
         <div className="anim-rise-in mt-8 flex w-full max-w-lg flex-col items-center gap-6">
           {!useCustom ? (
             <>
@@ -123,56 +133,72 @@ export default function FinalRound({ game, players, questions }: Props) {
           )}
 
           <button
-            onClick={startWagers}
+            onClick={begin}
             disabled={useCustom ? !customText.trim() || !customAnswer.trim() : !pooled}
             className="w-full max-w-sm rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-4 text-lg font-bold text-indigo-950 shadow-[0_8px_30px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
           >
-            Collect wagers
+            Open wagers on everyone&apos;s phones
           </button>
         </div>
       )}
 
-      {step === 'wagers' && wagerPlayer && (
-        <div
-          key={wagerPlayer.id}
-          className="anim-pop-in mt-8 flex w-full max-w-md flex-col items-center gap-5 rounded-3xl bg-indigo-900/70 p-8 ring-1 ring-indigo-700/60"
-        >
-          <p className="rounded-full bg-indigo-800 px-4 py-1.5 text-sm text-indigo-300">
-            📱 Pass the screen · {wagerIndex + 1} of {players.length}
+      {/* Wagers — live checklist while phones submit */}
+      {fr?.step === 'wagers' && (
+        <div className="anim-rise-in mt-8 flex w-full max-w-md flex-col items-center gap-6">
+          <p className="text-center text-xl text-indigo-200">
+            📱 Place your <span className="font-bold text-amber-300">secret wager</span> on
+            your phone — up to your current score.
           </p>
-          <p className="font-display text-5xl uppercase tracking-wide">{wagerPlayer.name}</p>
-          <p className="font-mono text-lg text-indigo-300">
-            Current score: <span className="font-bold text-white">{wagerPlayer.score}</span>
+          <p className="font-display text-3xl text-amber-400">
+            {locked.length} / {players.length} locked in
           </p>
-          <WagerInput
-            key={wagerPlayer.id}
-            label="Your secret wager"
-            max={Math.max(wagerPlayer.score, 0)}
-            onConfirm={(amount) => {
-              setWagers((prev) => ({ ...prev, [wagerPlayer.id]: amount }));
-              if (wagerIndex + 1 < players.length) {
-                setWagerIndex(wagerIndex + 1);
-              } else {
-                setStep('question');
-              }
-            }}
-          />
+          <ul className="grid w-full grid-cols-2 gap-2">
+            {sortedPlayers.map((p) => (
+              <li
+                key={p.id}
+                className={`flex items-center gap-2.5 rounded-xl px-3 py-2 ring-1 transition ${
+                  p.finalWager != null
+                    ? 'bg-emerald-500/15 ring-emerald-500/40'
+                    : 'bg-indigo-900/70 ring-indigo-700/50'
+                }`}
+              >
+                <Avatar player={p} sizeClass="h-8 w-8" textClass="text-xs" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+                <span>{p.finalWager != null ? '🔒' : '…'}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={() => updateFinalRound(game.roomCode, { step: 'question' })}
+              disabled={locked.length < players.length}
+              className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-8 py-4 text-lg font-bold text-indigo-950 shadow-[0_8px_30px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+            >
+              Show the question
+            </button>
+            {locked.length < players.length && (
+              <button
+                onClick={forceMissingToZero}
+                className="text-sm text-indigo-400 underline-offset-4 hover:text-indigo-300 hover:underline"
+              >
+                Missing someone? Set their wager to 0
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {step === 'question' && finalQuestion && (
+      {/* Question on stage */}
+      {fr?.step === 'question' && (
         <div className="anim-pop-in mt-8 flex w-full max-w-2xl flex-col items-center gap-8">
           <p className="max-w-xl text-center text-3xl font-semibold leading-snug tracking-tight sm:text-4xl">
-            {finalQuestion.text}
+            {fr.questionText}
           </p>
           <p className="text-indigo-400">
             Everyone answers out loud (or on paper) — then reveal.
           </p>
           <button
-            onClick={() => {
-              setShowAnswer(true);
-              setStep('judging');
-            }}
+            onClick={() => updateFinalRound(game.roomCode, { step: 'judging' })}
             className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-9 py-4 text-lg font-bold text-indigo-950 shadow-[0_8px_30px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98]"
           >
             Reveal the answer
@@ -180,16 +206,15 @@ export default function FinalRound({ game, players, questions }: Props) {
         </div>
       )}
 
-      {step === 'judging' && finalQuestion && (
+      {/* Judging — wagers become public, all changes land together */}
+      {fr?.step === 'judging' && (
         <div className="anim-rise-in mt-8 flex w-full max-w-2xl flex-col items-center gap-6">
           <p className="max-w-xl text-center text-2xl font-semibold leading-snug">
-            {finalQuestion.text}
+            {fr.questionText}
           </p>
-          {showAnswer && (
-            <p className="anim-reveal-flip rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-7 py-3 text-2xl font-bold text-indigo-950 shadow-[0_4px_24px_rgba(246,196,83,0.4)]">
-              {finalQuestion.answer}
-            </p>
-          )}
+          <p className="anim-reveal-flip rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-7 py-3 text-2xl font-bold text-indigo-950 shadow-[0_4px_24px_rgba(246,196,83,0.4)]">
+            {fr.answerText}
+          </p>
           <p className="text-xs uppercase tracking-widest text-indigo-400">
             Mark who got it right — all wagers apply together
           </p>
@@ -202,7 +227,7 @@ export default function FinalRound({ game, players, questions }: Props) {
                 <span className="min-w-0 truncate">
                   <span className="font-medium">{p.name}</span>{' '}
                   <span className="font-mono text-sm text-indigo-400">
-                    wagered {wagers[p.id] ?? 0}
+                    wagered {p.finalWager ?? 0}
                   </span>
                 </span>
                 <span className="flex shrink-0 gap-2">

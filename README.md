@@ -59,6 +59,25 @@ audio. Players add their photo during submission (camera or upload,
 center-cropped to a ~20 KB JPEG stored inline on their player doc — no
 Firebase Storage needed); players without a photo get initials.
 
+### Host console (second device for the host)
+
+`/console/<ROOMCODE>?key=<HOSTKEY>` — a phone-first private remote, gated by
+a host key minted at game creation (copy the full link from the 🛠 panel).
+The stage (TV) and console share live question state through the game doc
+(`game.stage`), so whichever surface acts, both follow:
+
+- **Private answers** — the console always shows the answer; the room only
+  sees it when you tap "Reveal on stage"
+- **Pick tiles, run the shared timer, judge straight from the buzz order**
+  (one tap on the buzzer's name), with a full player list as fallback
+- **Wildcard flows** (wagers, steal victims, swaps) driven from your palm
+- **Final round**: wagers are submitted from each player's own phone; the
+  stage shows a live locked-in checklist; console or stage reveals & judges
+- Victory anthems always play from the stage, no matter which surface judged
+  (via a `lastWin` marker on the game doc)
+
+The stage keeps all its buttons, so single-screen hosting still works.
+
 ### Host controls
 
 The 🛠 button (top-right of every host screen) opens the admin panel:
