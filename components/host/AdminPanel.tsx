@@ -9,6 +9,7 @@ import {
   reopenTile,
   removePlayerCascade,
 } from '@/lib/db';
+import AddPlayerForm from './AddPlayerForm';
 
 interface Props {
   game: Game;
@@ -84,6 +85,7 @@ export default function AdminPanel({ game, players, questions, tiles, onClose }:
               <ScoreRow key={p.id} player={p} />
             ))}
           </ul>
+          <AddPlayerForm roomCode={game.roomCode} players={players} />
         </section>
 
         {/* Questions & answers */}

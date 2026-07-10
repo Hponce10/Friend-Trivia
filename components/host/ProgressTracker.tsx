@@ -6,6 +6,7 @@ import { Game, Player, Question } from '@/lib/types';
 import { generateBoard, settingsForGroup } from '@/lib/gameLogic';
 import { writeTiles, updateGame } from '@/lib/db';
 import Avatar from '@/components/Avatar';
+import AddPlayerForm from './AddPlayerForm';
 
 interface Props {
   game: Game;
@@ -111,6 +112,7 @@ export default function ProgressTracker({ game, players, questions }: Props) {
               </li>
             )}
           </ul>
+          <AddPlayerForm roomCode={game.roomCode} players={players} variant="lobby" />
 
           <button
             onClick={handleBuildBoard}

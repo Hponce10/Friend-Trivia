@@ -112,6 +112,24 @@ export interface QuestionInput {
   answer: string;
 }
 
+// Host adds a walk-in player who never submitted questions. They score,
+// buzz, and appear on the leaderboard — the board just has no column for
+// them (columns come from submitted questions).
+export async function addManualPlayer(roomCode: string, name: string): Promise<void> {
+  const playerRef = doc(collection(db, 'players'));
+  const player: Player = {
+    id: playerRef.id,
+    roomCode,
+    name,
+    score: 0,
+    submitted: true,
+    anthem: null,
+    photo: null,
+    finalWager: null,
+  };
+  await setDoc(playerRef, player);
+}
+
 export async function submitPlayer(
   roomCode: string,
   name: string,
