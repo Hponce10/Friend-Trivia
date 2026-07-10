@@ -70,6 +70,14 @@ file is for working on the code.
 - Verify UI in the browser preview at desktop AND mobile viewports; drive
   React inputs with native setters + dispatched input/change events.
 
+## Firestore security rules (deployed 2026-07-10)
+
+`firestore.rules` is LIVE (deployed via `firebase deploy --only firestore:rules`,
+config in `firebase.json`). Key consequence: clients can no longer delete
+games/players/questions/tiles — test cleanup must go through the Firebase CLI:
+`firebase firestore:delete <path> --project friend-trivia-3568b --force`
+(requires `firebase login` or a CI token).
+
 ## Env / secrets
 
 `.env.local`: 6× `NEXT_PUBLIC_FIREBASE_*`, `NEXT_PUBLIC_SUPABASE_URL`,
@@ -84,7 +92,5 @@ exhausted), Vercel (unused — documented escape hatch only).
 
 ## Pending / known issues
 
-- **Publish `firestore.rules` in the Firebase console** — DB may still be on
-  test-mode rules that expire ~early Aug 2026 and would break the app.
 - Final-round setup happens on the stage; console mirrors after start.
 - `lib/gameLogic.test.ts` covers pure logic only; UI is verified manually.
