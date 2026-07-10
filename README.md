@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Friend Trivia Board
 
-## Getting Started
+A Jeopardy-style party game built from questions about your friends. Everyone
+submits 10 personal-trivia questions from their phone before game night; one
+shared host screen runs the board, wildcards, final wager round, and results.
 
-First, run the development server:
+## How a game works
+
+1. **Host** creates a game on the landing page and gets a 4-character room code.
+2. **Players** (3–8) open `/submit/<ROOMCODE>` on their phones and each submit
+   2 questions about themselves at every level, scaled by how many friends
+   would know the answer (Level 1: everyone knows → Level 5: maybe one person
+   knows, 10 total) — plus a **victory song** picked from Deezer, which plays
+   a ~9-second snippet on the host screen whenever they answer correctly.
+   (Deezer's public API is proxied through `/api/deezer` — no API key needed;
+   preview URLs are signed and short-lived, so the app stores only the track
+   id and re-resolves the URL at play time.)
+3. The host watches submissions arrive live, then hits **Build the Board** —
+   the game keeps 1 random question of each pair (5 per player) and secretly
+   flags 3 tiles as wildcards.
+4. Tiles resolve on the host screen: correct answers award points, wrong
+   answers deduct them (classic mode). Wildcards interrupt with their own flow:
+   - 🎰 **Daily Double** — only the picker answers, after wagering up to their score
+   - ⚡ **Double or Nothing** — first to buzz; correct doubles the tile value, wrong loses double
+   - 🏴‍☠️ **Steal** — a correct answer also takes up to the tile value from an opponent
+   - 🔄 **Swap** — the picker may force a full score swap before the question plays
+5. When the board clears, the app moves into the **Final Wager Round**
+   (pass-device secret wagers, one bonus question), then the results screen —
+   where the winner's victory song plays over the podium.
+
+### Phone controllers — buzzing, reactions, notes
+
+`/play/<ROOMCODE>` turns each player's phone into a game controller. Players
+claim their name once (remembered per device) and get:
+
+- **A big red buzzer** — armed automatically whenever the host opens a
+  question. Buzz order is decided by **Firestore server timestamps**, so
+  ordering is fair regardless of whose Wi-Fi is faster to render. The host's
+  question modal shows the live order with time gaps ("Ben +0.31s"), dings on
+  first buzz, and has a ↻ Reset for reopened questions. Phones show your
+  position instantly ("1st! The floor is yours 🎤"), with haptic feedback on
+  supported devices.
+- **Emoji reactions** (🔥 😂 👏 💀 😱 🎉) that float up the main screen and
+  leaderboard with the sender's name, gently rate-limited per device.
+- **A note box** (80 chars) — messages appear as name-tagged toasts at the top
+  of the big screen for a few seconds. Trash talk, answers disputes, dinner
+  orders.
+- **Live score, rank, and mini leaderboard** on the phone.
+
+### Live leaderboard (second screen)
+
+`/leaderboard/<ROOMCODE>` (or the 📊 button on any host screen) is a
+standalone spectator view built for a second TV: player photos, live
+rank-change animations, and scores that roll to their new value with a
+synthesized life-points counter sound (an homage to a certain dueling
+anime — generated with the Web Audio API, no audio assets). Tap
+**Enable sound** once per screen; browsers require a user gesture before
+audio. Players add their photo during submission (camera or upload,
+center-cropped to a ~20 KB JPEG stored inline on their player doc — no
+Firebase Storage needed); players without a photo get initials.
+
+### Host controls
+
+The 🛠 button (top-right of every host screen) opens the admin panel:
+
+- **Scores** — quick ±100 or set any exact value, live on the scoreboard
+- **Questions & answers** — edit any player's question or answer, any time
+- **Reopen a played tile** — puts a mistakenly-resolved tile back on the board
+  (score side-effects are yours to fix under Scores)
+- **Jump to phase** — force the game to Board / Final round / Results
+- **Remove a player** — deletes them with their questions and tiles
+
+In the question modal: a **countdown timer** (15/30/60s presets, go/pause/reset),
+an **✎ edit** next to the revealed answer for on-the-spot corrections, and a
+**✕ cancel** that closes a misclicked tile without resolving it.
+
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind CSS
+- Firebase Firestore via the client SDK — no custom backend
+- Realtime host views via `onSnapshot` listeners
+- No auth: the room code is the shared secret (private game for friends)
+
+## Local development
 
 ```bash
+npm install
+cp .env.local.example .env.local   # fill in your Firebase web-app config
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Create a Firebase project at console.firebase.google.com, register a web app,
+enable Firestore, and paste the config values into `.env.local`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Deploy the security rules in `firestore.rules` from the Firebase console
+(Firestore → Rules) or with `firebase deploy --only firestore:rules`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tests
 
-## Learn More
+Board generation and all scoring functions are pure functions in
+[lib/gameLogic.ts](lib/gameLogic.ts):
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm test
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploying to Vercel
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The app is a standard Next.js project — import the repo at vercel.com, add the
+six `NEXT_PUBLIC_FIREBASE_*` environment variables from `.env.local`, and
+deploy. Players just need the deployed URL plus the room code.
 
-## Deploy on Vercel
+## Known limitations (v1)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Final-round question choice and collected wagers live in host-screen state:
+  refreshing mid-final-round restarts that round (scores are safe in Firestore).
+- "Who picked the tile" isn't tracked, so Daily Double / Swap ask the host to
+  tap the picker's name.

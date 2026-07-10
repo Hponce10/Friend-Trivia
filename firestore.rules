@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// Private game for friends — the room code is the shared secret.
+// Rules scope every read/write to documents carrying a roomCode that
+// corresponds to a real game. No auth by design.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function gameExists(roomCode) {
+      return exists(/databases/$(database)/documents/games/$(roomCode));
+    }
+
+    match /games/{roomCode} {
+      allow read: if true;
+      // Anyone may create a game; only status/settings evolve afterward.
+      allow create: if request.resource.data.roomCode == roomCode;
+      allow update: if resource.data.roomCode == roomCode;
+      allow delete: if false;
+    }
+
+    match /players/{playerId} {
+      allow read: if true;
+      allow create: if gameExists(request.resource.data.roomCode);
+      allow update: if resource.data.roomCode is string;
+      allow delete: if false;
+    }
+
+    match /questions/{questionId} {
+      allow read: if true;
+      allow create: if gameExists(request.resource.data.roomCode);
+      allow update: if resource.data.roomCode is string;
+      allow delete: if false;
+    }
+
+    match /tiles/{tileId} {
+      allow read: if true;
+      allow create: if gameExists(request.resource.data.roomCode);
+      allow update: if resource.data.roomCode is string;
+      allow delete: if false;
+    }
+
+    // Phone companion: buzzer presses and reactions/notes. Both are
+    // ephemeral — buzzes are swept by the host each round.
+    match /buzzes/{buzzId} {
+      allow read: if true;
+      allow create: if gameExists(request.resource.data.roomCode);
+      allow update: if false;
+      allow delete: if true; // host sweeps old rounds
+    }
+
+    match /shouts/{shoutId} {
+      allow read: if true;
+      allow create: if gameExists(request.resource.data.roomCode)
+        && (request.resource.data.text == null
+            || request.resource.data.text.size() <= 80);
+      allow update: if false;
+      allow delete: if true;
+    }
+  }
+}
