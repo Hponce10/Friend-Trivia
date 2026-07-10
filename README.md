@@ -104,11 +104,34 @@ Board generation and all scoring functions are pure functions in
 npm test
 ```
 
-## Deploying to Vercel
+## Deployment (Cloudflare Workers)
 
-The app is a standard Next.js project — import the repo at vercel.com, add the
-six `NEXT_PUBLIC_FIREBASE_*` environment variables from `.env.local`, and
-deploy. Players just need the deployed URL plus the room code.
+Live at **https://friend-trivia.hectorponce16238.workers.dev** via the
+[OpenNext Cloudflare adapter](https://opennext.js.org/cloudflare) — the
+current Cloudflare-recommended path for Next.js App Router apps (needed
+because `/api/deezer` requires a server runtime).
+
+- `wrangler.jsonc` — Worker config (`nodejs_compat`, assets binding)
+- `open-next.config.ts` — OpenNext adapter config
+- `next.config.ts` — aliases `@firebase/firestore` to its **browser build**
+  for the server bundle; the Node build pulls in protobufjs, whose dynamic
+  codegen is forbidden on the Workers runtime. Don't remove this alias.
+
+Manual deploy from a machine with `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` set (see `.env.cloudflare`, not committed):
+
+```bash
+npm run deploy        # opennextjs-cloudflare build && deploy
+npm run preview       # test locally in the real workerd runtime
+```
+
+### CI/CD
+
+Every push to `main` runs `.github/workflows/deploy.yml`: type check →
+lint → unit tests → build → deploy to Cloudflare. Required GitHub Actions
+secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and the six
+`NEXT_PUBLIC_FIREBASE_*` values (build-time inlining). The Cloudflare
+token is scoped to Workers Scripts only and was created via the API.
 
 ## Known limitations (v1)
 

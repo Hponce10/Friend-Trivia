@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, Firestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -10,6 +10,14 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+// Initialize only in the browser. Every Firestore call in this app happens
+// client-side (inside effects/handlers of 'use client' components); on the
+// server this module must stay inert — the Firestore SDK's Node build pulls
+// in protobufjs, whose dynamic codegen is forbidden on Cloudflare Workers.
+function initDb(): Firestore {
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  return getFirestore(app);
+}
 
-export const db = getFirestore(app);
+export const db: Firestore =
+  typeof window === 'undefined' ? (undefined as unknown as Firestore) : initDb();
