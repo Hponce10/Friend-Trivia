@@ -12,13 +12,17 @@ export default function HistoryPage() {
   const [hall, setHall] = useState<HallOfFame | null | 'loading' | 'error'>('loading');
 
   useEffect(() => {
-    if (!archiveEnabled()) {
-      setHall(null);
-      return;
-    }
-    fetchHallOfFame()
-      .then((h) => setHall(h))
-      .catch(() => setHall('error'));
+    // deferred a tick — the linter flags synchronous setState in effects
+    const id = setTimeout(() => {
+      if (!archiveEnabled()) {
+        setHall(null);
+        return;
+      }
+      fetchHallOfFame()
+        .then((h) => setHall(h))
+        .catch(() => setHall('error'));
+    }, 0);
+    return () => clearTimeout(id);
   }, []);
 
   return (
