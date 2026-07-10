@@ -63,6 +63,8 @@ export interface Game {
   // Last scoring win — the stage watches this to play victory anthems,
   // no matter which surface (stage or console) did the judging.
   lastWin?: { playerId: string; at: number } | null;
+  // Set once the finished game has been written to the Supabase archive.
+  archived?: boolean;
 }
 
 // A press of the big red button, ordered by server timestamp for fairness.

@@ -152,6 +152,34 @@ secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and the six
 `NEXT_PUBLIC_FIREBASE_*` values (build-time inlining). The Cloudflare
 token is scoped to Workers Scripts only and was created via the API.
 
+## Hall of Fame (Supabase archive)
+
+The live game runs entirely on Firestore. When a game completes, the results
+screen makes one **fire-and-forget** write to Supabase (Postgres) — profiles
+(identity = display name, case-insensitive), the game, and per-player results.
+`/history` renders career standings, all-time records, and recent game nights
+from it. If the archive write fails (paused project, offline), the game is
+unaffected; un-archived games retry next time their results screen opens
+(guarded by `game.archived`).
+
+- Schema lives in Supabase migrations (`hall_of_fame_schema`); client code in
+  [lib/archive.ts](lib/archive.ts)
+- Env: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_KEY` (publishable)
+- Supabase free tier auto-pauses after ~1 week idle —
+  `.github/workflows/keep-alive.yml` pings it twice weekly
+
+## Architecture decisions (don't re-litigate without new facts)
+
+- **Hosting stays on Cloudflare Workers** — Vercel would be marginally simpler
+  (native Next.js, no OpenNext/Firestore alias) but re-platforming a working,
+  verified setup buys no user-visible improvement. Escape hatch documented
+  above if an upgrade ever breaks the OpenNext build.
+- **Live game stays on Firestore** — real-time `onSnapshot` is the app's
+  spine (stage↔console sync, buzzer fairness via server timestamps). A
+  Supabase migration would rewrite ~25 db functions for no gain, and free-tier
+  auto-pause is unacceptable for the live path. Supabase is used only for the
+  additive Hall of Fame archive, where SQL genuinely wins.
+
 ## Known limitations (v1)
 
 - Final-round question choice and collected wagers live in host-screen state:

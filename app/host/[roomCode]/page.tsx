@@ -154,7 +154,7 @@ export default function HostPage({
       content = <FinalRound game={game} players={sortedPlayers} questions={questions} />;
       break;
     case 'completed':
-      content = <ResultsScreen players={sortedPlayers} />;
+      content = <ResultsScreen game={game} players={sortedPlayers} />;
       break;
   }
 

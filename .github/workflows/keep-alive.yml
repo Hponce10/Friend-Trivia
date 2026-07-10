@@ -1,0 +1,22 @@
+name: Keep Supabase awake
+
+# Supabase free-tier projects auto-pause after ~1 week of inactivity, which
+# would put the Hall of Fame archive to sleep between game nights. A tiny
+# read twice a week keeps it warm.
+
+on:
+  schedule:
+    - cron: '0 12 * * 1,4' # Mondays & Thursdays, 12:00 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the archive
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/profiles?select=id&limit=1" \
+            -H "apikey: ${{ secrets.NEXT_PUBLIC_SUPABASE_KEY }}")
+          echo "Supabase responded: $code"
+          test "$code" = "200"

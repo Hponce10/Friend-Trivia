@@ -2,11 +2,14 @@
 
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Player } from '@/lib/types';
+import { Game, Player } from '@/lib/types';
 import { playAnthem } from '@/lib/anthem';
+import { archiveGame } from '@/lib/archive';
+import { updateGame } from '@/lib/db';
 import Avatar from '@/components/Avatar';
 
 interface Props {
+  game: Game;
   players: Player[];
 }
 
@@ -14,11 +17,23 @@ const PODIUM_ORDER = [1, 0, 2]; // display 2nd, 1st, 3rd
 const PODIUM_HEIGHTS = ['h-24', 'h-36', 'h-16'];
 const PODIUM_MEDALS = ['🥈', '🥇', '🥉'];
 
-export default function ResultsScreen({ players }: Props) {
+export default function ResultsScreen({ game, players }: Props) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
   const winner = sorted[0];
   const podium = PODIUM_ORDER.map((rank) => ({ player: sorted[rank], rank }));
   const rest = sorted.slice(3);
+
+  // Fire-and-forget Hall of Fame archive — one write per game, guarded by
+  // game.archived. Failure (paused project, offline) never affects results.
+  const archiveTried = useRef(false);
+  useEffect(() => {
+    if (archiveTried.current || game.archived || players.length === 0) return;
+    archiveTried.current = true;
+    archiveGame(game, players)
+      .then(() => updateGame(game.roomCode, { archived: true }))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [players.length]);
 
   const anthemPlayed = useRef(false);
   useEffect(() => {
@@ -114,13 +129,23 @@ export default function ResultsScreen({ players }: Props) {
         </ul>
       )}
 
-      <Link
-        href="/"
-        className="anim-fade-in mt-12 rounded-2xl border border-indigo-600 px-6 py-3 text-indigo-300 transition hover:bg-indigo-800/60 hover:text-white active:scale-[0.98]"
+      <div
+        className="anim-fade-in mt-12 flex gap-3"
         style={{ animationDelay: '1400ms' }}
       >
-        Start a new game
-      </Link>
+        <Link
+          href="/history"
+          className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-3 font-semibold text-indigo-950 shadow-[0_4px_18px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98]"
+        >
+          🏆 Hall of Fame
+        </Link>
+        <Link
+          href="/"
+          className="rounded-2xl border border-indigo-600 px-6 py-3 text-indigo-300 transition hover:bg-indigo-800/60 hover:text-white active:scale-[0.98]"
+        >
+          Start a new game
+        </Link>
+      </div>
     </div>
   );
 }

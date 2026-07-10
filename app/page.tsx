@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createGame, getGame } from '@/lib/db';
 import GuideModal from '@/components/home/GuideModal';
@@ -145,6 +146,13 @@ export default function Home() {
         <p className="text-center text-sm text-indigo-500">
           Players: your host will send you a link — or read the guides below.
         </p>
+
+        <Link
+          href="/history"
+          className="mx-auto rounded-full border border-amber-400/40 px-5 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-400/10 active:scale-[0.98]"
+        >
+          🏆 Hall of Fame — all-time records
+        </Link>
       </div>
 
       {/* Guides */}
