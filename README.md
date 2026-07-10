@@ -139,3 +139,4 @@ token is scoped to Workers Scripts only and was created via the API.
   refreshing mid-final-round restarts that round (scores are safe in Firestore).
 - "Who picked the tile" isn't tracked, so Daily Double / Swap ask the host to
   tap the picker's name.
+- CI verified: push to main → checks → auto-deploy to Cloudflare ✓
