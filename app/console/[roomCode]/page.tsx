@@ -732,16 +732,14 @@ function ConsoleFinal({
   async function applyResults() {
     if (!fr) return;
     setResolving(true);
-    await Promise.all(
-      players.map((p) =>
-        updatePlayerScore(
-          p.id,
-          resolveDailyDouble(p.score, p.finalWager ?? 0, verdicts[p.id] ?? false)
-        )
-      )
-    );
+    // Same atomic finalScores handoff as the stage — see FinalRound.tsx.
+    const finalScores: Record<string, number> = {};
+    for (const p of players) {
+      finalScores[p.id] = resolveDailyDouble(p.score, p.finalWager ?? 0, verdicts[p.id] ?? false);
+    }
+    await Promise.all(players.map((p) => updatePlayerScore(p.id, finalScores[p.id])));
     if (fr.poolId) await markQuestionUsed(fr.poolId);
-    await updateGame(game.roomCode, { status: 'completed', finalRound: null });
+    await updateGame(game.roomCode, { status: 'completed', finalRound: null, finalScores });
   }
 
   // Lightning round: full controls with the private answer visible.

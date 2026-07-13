@@ -22,7 +22,14 @@ export default function ResultsScreen({ game, players }: Props) {
   const [recapState, setRecapState] = useState<
     'idle' | 'rendering' | 'downloaded' | 'error'
   >('idle');
-  const sorted = [...players].sort((a, b) => b.score - a.score);
+  // Prefer the authoritative finalScores written with status='completed' —
+  // the players snapshot can lag the wager updates (cross-document listener
+  // order isn't guaranteed), which once archived a pre-wager score.
+  const effective = players.map((p) => ({
+    ...p,
+    score: game.finalScores?.[p.id] ?? p.score,
+  }));
+  const sorted = [...effective].sort((a, b) => b.score - a.score);
   const winner = sorted[0];
   const podium = PODIUM_ORDER.map((rank) => ({ player: sorted[rank], rank }));
   const rest = sorted.slice(3);
@@ -33,7 +40,7 @@ export default function ResultsScreen({ game, players }: Props) {
   useEffect(() => {
     if (archiveTried.current || game.archived || players.length === 0) return;
     archiveTried.current = true;
-    archiveGame(game, players)
+    archiveGame(game, sorted)
       .then(() => updateGame(game.roomCode, { archived: true }))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,7 +149,7 @@ export default function ResultsScreen({ game, players }: Props) {
           disabled={recapState === 'rendering'}
           onClick={() => {
             setRecapState('rendering');
-            shareRecap(game, players)
+            shareRecap(game, sorted)
               .then((how) => setRecapState(how === 'downloaded' ? 'downloaded' : 'idle'))
               .catch(() => setRecapState('error'));
           }}

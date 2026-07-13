@@ -95,6 +95,11 @@ export interface Game {
   lightning?: LightningState | null;
   // Latest judged answer — the stage plays a countdown + meme reveal.
   verdictReveal?: VerdictReveal | null;
+  // Authoritative end-of-game scores, written atomically with
+  // status='completed'. The archive prefers these over the players
+  // snapshot, which can lag behind the wager updates (listener delivery
+  // order across documents isn't guaranteed).
+  finalScores?: Record<string, number> | null;
   // Last scoring win — the stage watches this to play victory anthems,
   // no matter which surface (stage or console) did the judging.
   lastWin?: { playerId: string; at: number } | null;
