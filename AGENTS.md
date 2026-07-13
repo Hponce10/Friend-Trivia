@@ -78,6 +78,11 @@ games/players/questions/tiles — test cleanup must go through the Firebase CLI:
 `firebase firestore:delete <path> --project friend-trivia-3568b --force`
 (requires `firebase login` or a CI token).
 
+When seeding test docs directly (bypassing the app), always include an
+`id` field equal to the doc id — lib/db.ts writes it on every create and
+components key lists off it. Seeds without it cause phantom React
+"missing key" warnings that look like app bugs (they aren't).
+
 ## Env / secrets
 
 `.env.local`: 6× `NEXT_PUBLIC_FIREBASE_*`, `NEXT_PUBLIC_SUPABASE_URL`,
