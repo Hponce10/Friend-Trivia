@@ -17,16 +17,24 @@ shared host screen runs the board, wildcards, final wager round, and results.
    id and re-resolves the URL at play time.)
 3. The host watches submissions arrive live, then hits **Build the Board** —
    the game keeps 1 random question of each pair (5 per player) and secretly
-   flags 3 tiles as wildcards.
+   flags roughly one tile in seven as a wildcard (scaled to group size).
 4. Tiles resolve on the host screen: correct answers award points, wrong
-   answers deduct them (classic mode). Wildcards interrupt with their own flow:
+   answers deduct them — but **scores never drop below zero**, and every
+   verdict gets a 3‑2‑1 countdown + meme-GIF reveal on the stage. If the
+   whole room whiffs, the question's **owner banks the tile** (stump bonus).
+   Wildcards interrupt with their own flow:
    - 🎰 **Daily Double** — only the picker answers, after wagering up to their score
    - ⚡ **Double or Nothing** — first to buzz; correct doubles the tile value, wrong loses double
    - 🏴‍☠️ **Steal** — a correct answer also takes up to the tile value from an opponent
    - 🔄 **Swap** — the picker may force a full score swap before the question plays
-5. When the board clears, the app moves into the **Final Wager Round**
-   (pass-device secret wagers, one bonus question), then the results screen —
-   where the winner's victory song plays over the podium.
+   - 📱 **Everyone Answers** — no buzzers; every phone types an answer at once
+     and the host judges the side-by-side reveal (wrong costs nothing)
+5. When the board clears, the host can run an optional ⚡ **Lightning Round**
+   (60 seconds of rapid-fire buzzing through the unused question pool), then
+   the **Final Wager Round** — secret wagers from each player's own phone,
+   with a minimum stake so last place is never mathematically dead — and the
+   results screen: podium, anthems, confetti, and a **📸 shareable recap
+   image** rendered client-side for the group chat.
 
 ### Phone controllers — buzzing, reactions, notes
 
@@ -157,8 +165,11 @@ token is scoped to Workers Scripts only and was created via the API.
 The live game runs entirely on Firestore. When a game completes, the results
 screen makes one **fire-and-forget** write to Supabase (Postgres) — profiles
 (identity = display name, case-insensitive), the game, and per-player results.
-`/history` renders career standings, all-time records, and recent game nights
-from it. If the archive write fails (paused project, offline), the game is
+`/history` renders career standings, all-time records (including per-night
+stat records — most buzzes, best accuracy, stumps), **season standings** with
+an explicit end-season/crown-a-champion action, and recent game nights.
+Per-player night-of stats (buzzes, correct, wrong, stumps) accumulate on the
+player doc during judging and archive with each result. If the archive write fails (paused project, offline), the game is
 unaffected; un-archived games retry next time their results screen opens
 (guarded by `game.archived`).
 
@@ -182,8 +193,6 @@ unaffected; un-archived games retry next time their results screen opens
 
 ## Known limitations (v1)
 
-- Final-round question choice and collected wagers live in host-screen state:
-  refreshing mid-final-round restarts that round (scores are safe in Firestore).
 - "Who picked the tile" isn't tracked, so Daily Double / Swap ask the host to
   tap the picker's name.
 - CI verified: push to main → checks → auto-deploy to Cloudflare ✓
