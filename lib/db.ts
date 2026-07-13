@@ -12,16 +12,20 @@ import {
   Timestamp,
   addDoc,
   getDocs,
+  increment,
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
   Anthem,
+  Answer,
   Buzz,
   DEFAULT_SETTINGS,
   FinalRoundState,
   Game,
+  LightningState,
   Player,
+  PlayerStats,
   Question,
   Shout,
   StageState,
@@ -181,6 +185,21 @@ export async function updatePlayerScore(
   await updateDoc(doc(db, 'players', playerId), { score });
 }
 
+// Night-of stat counters, archived with the result at game end. Uses
+// atomic increments so concurrent judging surfaces can't clobber each other.
+export async function bumpPlayerStats(
+  playerId: string,
+  bumps: Partial<PlayerStats>
+): Promise<void> {
+  const updates: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(bumps)) {
+    if (v) updates[`stats.${k}`] = increment(v);
+  }
+  if (Object.keys(updates).length > 0) {
+    await updateDoc(doc(db, 'players', playerId), updates);
+  }
+}
+
 export async function updateTile(
   tileId: string,
   updates: Partial<Tile>
@@ -244,6 +263,7 @@ function freshStage(tile: Tile): StageState {
     ddWager: 0,
     stealWinnerId: null,
     swapPickerId: null,
+    eaOwnerId: tile.wildcardType === 'everyone_answers' ? tile.ownerPlayerId : null,
     lockedOut: [],
     timerEndsAt: null,
     timerRemaining: 30,
@@ -252,11 +272,16 @@ function freshStage(tile: Tile): StageState {
 }
 
 // Open a tile: publish fresh stage state and arm the phone buzzers in the
-// same batch (sweeping stale buzz docs from earlier questions).
+// same batch (sweeping stale buzz and typed-answer docs from earlier
+// questions).
 export async function openTile(roomCode: string, tile: Tile, currentRound: number): Promise<void> {
-  const old = await getDocs(query(collection(db, 'buzzes'), where('roomCode', '==', roomCode)));
+  const [oldBuzzes, oldAnswers] = await Promise.all([
+    getDocs(query(collection(db, 'buzzes'), where('roomCode', '==', roomCode))),
+    getDocs(query(collection(db, 'answers'), where('roomCode', '==', roomCode))),
+  ]);
   const batch = writeBatch(db);
-  old.docs.forEach((d) => batch.delete(d.ref));
+  oldBuzzes.docs.forEach((d) => batch.delete(d.ref));
+  oldAnswers.docs.forEach((d) => batch.delete(d.ref));
   batch.update(doc(db, 'games', roomCode), {
     stage: freshStage(tile),
     buzzerArmed: true,
@@ -315,6 +340,30 @@ export async function setFinalWager(playerId: string, amount: number): Promise<v
   await updateDoc(doc(db, 'players', playerId), { finalWager: amount });
 }
 
+/* ---- Lightning round ---- */
+
+export async function startLightning(
+  roomCode: string,
+  questionIds: string[],
+  perCorrect: number
+): Promise<void> {
+  const lightning: LightningState = { questionIds, index: 0, endsAt: null, perCorrect };
+  await updateDoc(doc(db, 'games', roomCode), { lightning });
+}
+
+export async function updateLightning(
+  roomCode: string,
+  updates: Partial<LightningState>
+): Promise<void> {
+  const dotted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(updates)) dotted[`lightning.${k}`] = v;
+  await updateDoc(doc(db, 'games', roomCode), dotted);
+}
+
+export async function endLightning(roomCode: string): Promise<void> {
+  await updateDoc(doc(db, 'games', roomCode), { lightning: null, buzzerArmed: false });
+}
+
 /* ---- Phone companion: buzzers & shouts ---- */
 
 // Arm the buzzers for a new question: bump the round (so old buzzes can't
@@ -345,6 +394,41 @@ export async function sendBuzz(
     name: player.name,
     round,
     at: serverTimestamp(), // server-side ordering — fair across devices
+  });
+  // Stat counter is best-effort — never let it delay or fail the buzz.
+  void bumpPlayerStats(player.id, { buzzes: 1 }).catch(() => {});
+}
+
+/* ---- Everyone Answers: typed answers from phones ---- */
+
+const ANSWER_MAX_CHARS = 120;
+
+export async function sendAnswer(
+  roomCode: string,
+  player: Player,
+  round: number,
+  text: string
+): Promise<void> {
+  await addDoc(collection(db, 'answers'), {
+    roomCode,
+    playerId: player.id,
+    name: player.name,
+    round,
+    text: text.slice(0, ANSWER_MAX_CHARS),
+    at: Date.now(),
+  });
+}
+
+export function watchAnswers(
+  roomCode: string,
+  callback: (answers: Answer[]) => void
+): Unsubscribe {
+  const q = query(collection(db, 'answers'), where('roomCode', '==', roomCode));
+  return onSnapshot(q, (snap) => {
+    const answers = snap.docs
+      .map((d) => ({ ...d.data(), id: d.id }) as Answer)
+      .sort((a, b) => a.at - b.at);
+    callback(answers);
   });
 }
 

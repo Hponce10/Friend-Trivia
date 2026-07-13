@@ -9,10 +9,17 @@ function shuffle<T>(items: T[]): T[] {
   return arr;
 }
 
-// Scale game settings to the group size at board-build time. The base
-// defaults (3 wildcards, two types) suit a small game; a 10-player board
-// has 50 tiles and wants roughly one wildcard per 7 tiles, and steal/swap
-// only get interesting once there are enough opponents to target.
+// Scores never go below zero — wrong answers and lost wagers sting, but
+// nobody gets mathematically buried (a dead-last player who can't recover
+// checks out of the game).
+export function clampScore(score: number): number {
+  return Math.max(0, score);
+}
+
+// Scale game settings to the group size at board-build time: roughly one
+// wildcard per 7 tiles (min 1, max 6) so a 10-tile board isn't all gimmick.
+// Everyone Answers needs 3+ players (the owner sits out); steal/swap only
+// get interesting once there are enough opponents to target.
 export function settingsForGroup(
   settings: GameSettings,
   playerCount: number
@@ -20,11 +27,13 @@ export function settingsForGroup(
   const tileCount = playerCount * 5;
   return {
     ...settings,
-    wildcardCount: Math.max(settings.wildcardCount, Math.round(tileCount / 7)),
+    wildcardCount: Math.min(6, Math.max(1, Math.round(tileCount / 7))),
     enabledWildcards:
       playerCount >= 6
-        ? ['daily_double', 'double_or_nothing', 'steal', 'swap']
-        : settings.enabledWildcards,
+        ? ['daily_double', 'double_or_nothing', 'steal', 'swap', 'everyone_answers']
+        : playerCount >= 3
+          ? [...new Set([...settings.enabledWildcards, 'everyone_answers' as const])]
+          : settings.enabledWildcards,
   };
 }
 
@@ -71,7 +80,7 @@ export function resolveNormal(
   penaltyOnWrong: boolean
 ): number {
   if (correct) return score + pointValue;
-  return penaltyOnWrong ? score - pointValue : score;
+  return penaltyOnWrong ? clampScore(score - pointValue) : score;
 }
 
 export function resolveDailyDouble(
@@ -79,7 +88,7 @@ export function resolveDailyDouble(
   wager: number,
   correct: boolean
 ): number {
-  return correct ? score + wager : score - wager;
+  return correct ? score + wager : clampScore(score - wager);
 }
 
 export function resolveDoubleOrNothing(
@@ -87,7 +96,7 @@ export function resolveDoubleOrNothing(
   pointValue: number,
   correct: boolean
 ): number {
-  return correct ? score + 2 * pointValue : score - 2 * pointValue;
+  return correct ? score + 2 * pointValue : clampScore(score - 2 * pointValue);
 }
 
 export function resolveSteal(
@@ -96,10 +105,11 @@ export function resolveSteal(
   pointValue: number,
   stolenAmount: number
 ): { answererScore: number; opponentScore: number } {
-  const capped = Math.min(stolenAmount, pointValue);
+  // Can't steal more than the victim has — the floor is zero.
+  const capped = Math.min(stolenAmount, pointValue, opponentScore);
   return {
     answererScore: answererScore + pointValue + capped,
-    opponentScore: opponentScore - capped,
+    opponentScore: clampScore(opponentScore - capped),
   };
 }
 
@@ -114,4 +124,12 @@ export function pickFinalRoundQuestion(questions: Question[]): Question | null {
   const unused = questions.filter((q) => !q.usedInGame);
   if (unused.length === 0) return null;
   return unused[Math.floor(Math.random() * unused.length)];
+}
+
+// Lightning round pool: the unused half of everyone's question pairs,
+// shuffled, capped so the round can actually finish. One is always held
+// back for the Final Wager draw.
+export function pickLightningQuestions(questions: Question[], cap = 15): string[] {
+  const unused = shuffle(questions.filter((q) => !q.usedInGame));
+  return unused.slice(0, Math.min(cap, Math.max(0, unused.length - 1))).map((q) => q.id);
 }

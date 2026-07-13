@@ -7,6 +7,7 @@ import {
   resolveSteal,
   resolveSwap,
   pickFinalRoundQuestion,
+  pickLightningQuestions,
   settingsForGroup,
 } from './gameLogic';
 import { Player, Question, GameSettings, DEFAULT_SETTINGS } from './types';
@@ -85,8 +86,9 @@ describe('resolveNormal', () => {
   it('adds points on correct answer', () => {
     expect(resolveNormal(100, 200, true, true)).toBe(300);
   });
-  it('subtracts points on wrong answer when penalty is on', () => {
-    expect(resolveNormal(100, 200, false, true)).toBe(-100);
+  it('subtracts points on wrong answer when penalty is on, floored at 0', () => {
+    expect(resolveNormal(100, 200, false, true)).toBe(0);
+    expect(resolveNormal(500, 200, false, true)).toBe(300);
   });
   it('leaves score unchanged on wrong answer when penalty is off', () => {
     expect(resolveNormal(100, 200, false, false)).toBe(100);
@@ -100,14 +102,18 @@ describe('resolveDailyDouble', () => {
   it('subtracts the wager on incorrect', () => {
     expect(resolveDailyDouble(500, 300, false)).toBe(200);
   });
+  it('never drops below zero (final-wager floor lets 0-score players wager)', () => {
+    expect(resolveDailyDouble(0, 100, false)).toBe(0);
+  });
 });
 
 describe('resolveDoubleOrNothing', () => {
   it('doubles the tile value on correct', () => {
     expect(resolveDoubleOrNothing(100, 200, true)).toBe(500);
   });
-  it('loses double the tile value on incorrect', () => {
+  it('loses double the tile value on incorrect, floored at 0', () => {
     expect(resolveDoubleOrNothing(500, 200, false)).toBe(100);
+    expect(resolveDoubleOrNothing(100, 200, false)).toBe(0);
   });
 });
 
@@ -121,6 +127,11 @@ describe('resolveSteal', () => {
     const result = resolveSteal(100, 500, 200, 999);
     expect(result.answererScore).toBe(100 + 200 + 200);
     expect(result.opponentScore).toBe(500 - 200);
+  });
+  it('cannot steal more than the victim has — victim floors at 0', () => {
+    const result = resolveSteal(100, 50, 200, 200);
+    expect(result.answererScore).toBe(100 + 200 + 50);
+    expect(result.opponentScore).toBe(0);
   });
 });
 
@@ -147,30 +158,56 @@ describe('pickFinalRoundQuestion', () => {
 });
 
 describe('settingsForGroup', () => {
-  it('keeps the base defaults for a small group', () => {
-    const scaled = settingsForGroup(DEFAULT_SETTINGS, 3);
-    expect(scaled.wildcardCount).toBe(3); // 15 tiles / 7 ≈ 2, base 3 wins
-    expect(scaled.enabledWildcards).toEqual(DEFAULT_SETTINGS.enabledWildcards);
+  it('derives wildcard density from board size (≈1 per 7 tiles, min 1)', () => {
+    expect(settingsForGroup(DEFAULT_SETTINGS, 2).wildcardCount).toBe(1); // 10 tiles
+    expect(settingsForGroup(DEFAULT_SETTINGS, 3).wildcardCount).toBe(2); // 15 tiles
+    expect(settingsForGroup(DEFAULT_SETTINGS, 6).wildcardCount).toBe(4); // 30 tiles
   });
 
-  it('scales wildcards up and enables all types for a big group', () => {
+  it('caps wildcards at 6 for big groups and enables every type', () => {
     const scaled = settingsForGroup(DEFAULT_SETTINGS, 10);
-    expect(scaled.wildcardCount).toBe(7); // 50 tiles / 7 ≈ 7
+    expect(scaled.wildcardCount).toBe(6); // 50 tiles / 7 ≈ 7, capped
     expect(scaled.enabledWildcards).toEqual([
       'daily_double',
       'double_or_nothing',
       'steal',
       'swap',
+      'everyone_answers',
     ]);
   });
 
-  it('enables all wildcard types starting at 6 players', () => {
-    expect(settingsForGroup(DEFAULT_SETTINGS, 5).enabledWildcards).toHaveLength(2);
-    expect(settingsForGroup(DEFAULT_SETTINGS, 6).enabledWildcards).toHaveLength(4);
+  it('adds everyone_answers from 3 players (owner sits out) but not at 2', () => {
+    expect(settingsForGroup(DEFAULT_SETTINGS, 2).enabledWildcards).toEqual(
+      DEFAULT_SETTINGS.enabledWildcards
+    );
+    expect(settingsForGroup(DEFAULT_SETTINGS, 3).enabledWildcards).toContain(
+      'everyone_answers'
+    );
+    expect(settingsForGroup(DEFAULT_SETTINGS, 5).enabledWildcards).toHaveLength(3);
+    expect(settingsForGroup(DEFAULT_SETTINGS, 6).enabledWildcards).toHaveLength(5);
+  });
+});
+
+describe('pickLightningQuestions', () => {
+  it('draws only unused questions and always leaves one for the final', () => {
+    const players = makePlayers(1);
+    const questions = makeQuestions(players); // 10, all unused
+    const picked = pickLightningQuestions(questions);
+    expect(picked.length).toBe(9); // one held back
+    for (const id of picked) {
+      expect(questions.find((q) => q.id === id)!.usedInGame).toBe(false);
+    }
   });
 
-  it('never lowers an explicit wildcard count', () => {
-    const custom = { ...DEFAULT_SETTINGS, wildcardCount: 12 };
-    expect(settingsForGroup(custom, 4).wildcardCount).toBe(12);
+  it('caps the pool so the round can finish', () => {
+    const players = makePlayers(4);
+    const questions = makeQuestions(players); // 40 unused
+    expect(pickLightningQuestions(questions).length).toBe(15);
+  });
+
+  it('returns empty when nothing is unused', () => {
+    const players = makePlayers(1);
+    const questions = makeQuestions(players).map((q) => ({ ...q, usedInGame: true }));
+    expect(pickLightningQuestions(questions)).toEqual([]);
   });
 });

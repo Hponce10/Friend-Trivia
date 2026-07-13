@@ -48,6 +48,17 @@ service cloud.firestore {
       allow delete: if true; // host sweeps old rounds
     }
 
+    // Typed answers for Everyone Answers tiles — ephemeral like buzzes,
+    // swept by the host when the next tile opens.
+    match /answers/{answerId} {
+      allow read: if true;
+      allow create: if gameExists(request.resource.data.roomCode)
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 120;
+      allow update: if false;
+      allow delete: if true; // host sweeps old rounds
+    }
+
     match /shouts/{shoutId} {
       allow read: if true;
       allow create: if gameExists(request.resource.data.roomCode)

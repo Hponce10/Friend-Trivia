@@ -362,10 +362,19 @@ export function RulesGuide() {
             <span className="text-indigo-300">locked out; others may try</span>
           </li>
           <li className="flex items-center justify-between rounded-xl bg-indigo-800/40 px-4 py-2.5 ring-1 ring-indigo-700/40">
-            <span>Negative scores</span>
-            <span className="text-indigo-300">allowed — climb out!</span>
+            <span>Nobody gets it — the stump bonus</span>
+            <span className="font-display text-amber-400">owner + tile value</span>
+          </li>
+          <li className="flex items-center justify-between rounded-xl bg-indigo-800/40 px-4 py-2.5 ring-1 ring-indigo-700/40">
+            <span>Score floor</span>
+            <span className="text-indigo-300">never below 0 — always alive</span>
           </li>
         </ul>
+        <Tip>
+          The stump bonus means writing great deep-cut questions is playing
+          too: if the whole room whiffs on your question, <em>you</em> bank
+          the points (and your anthem plays).
+        </Tip>
       </Section>
 
       <Section title="Wildcards">
@@ -393,7 +402,21 @@ export function RulesGuide() {
             Before the question plays, the picker may trade entire scores with
             any opponent. Then the question plays as normal. Chaos, by design.
           </WildcardCard>
+          <WildcardCard emoji="📱" name="Everyone Answers" world="from-emerald-500 via-teal-700 to-cyan-950">
+            No buzzers — every phone types an answer at the same time, then all
+            answers hit the big screen at once. Correct earns the tile value;
+            wrong costs nothing. The subject watches the guesses roll in.
+          </WildcardCard>
         </div>
+      </Section>
+
+      <Section title="The Lightning Round ⚡ (optional)">
+        <p className="text-sm leading-relaxed text-indigo-300">
+          Before the Final Wager, the host can fire up 60 seconds of rapid-fire
+          buzzing through the questions the board never used. First buzz
+          answers; correct is worth the lowest tile value; wrong costs nothing —
+          the clock is the pressure. Great for a comeback surge.
+        </p>
       </Section>
 
       <Section title="The Final Wager">
@@ -402,13 +425,24 @@ export function RulesGuide() {
           the host).
         </Step>
         <Step n={2} title="Secret wagers first">
-          Before hearing anything, each player wagers 0 up to their current
-          score. Wagers are collected privately, pass-the-phone style.
+          Each player wagers secretly on their own phone — up to their score,
+          and everyone may wager at least the lowest tile value, so even last
+          place is one great answer from a comeback.
         </Step>
         <Step n={3} title="Everyone answers, then one reveal">
-          Correct answers win their wager; wrong answers lose it. All changes
-          land at the same time — the crown often moves on this question.
+          Correct answers win their wager; wrong answers lose it (never below
+          0). All changes land at the same time — the crown often moves on
+          this question.
         </Step>
+      </Section>
+
+      <Section title="Seasons 🏆">
+        <p className="text-sm leading-relaxed text-indigo-300">
+          Every game night counts toward the current season in the Hall of
+          Fame. Whenever the group decides a season is over, crown the champion
+          (most wins, points break ties) from the Hall of Fame page — the next
+          game night starts a fresh race.
+        </p>
       </Section>
 
       <Section title="House rules (recommended)">

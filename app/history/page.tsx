@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { fetchHallOfFame, archiveEnabled, HallOfFame } from '@/lib/archive';
+import { fetchHallOfFame, archiveEnabled, closeSeason, HallOfFame } from '@/lib/archive';
 import Avatar from '@/components/Avatar';
 import HomeLink from '@/components/HomeLink';
 
@@ -10,6 +10,8 @@ import HomeLink from '@/components/HomeLink';
 
 export default function HistoryPage() {
   const [hall, setHall] = useState<HallOfFame | null | 'loading' | 'error'>('loading');
+  const [closing, setClosing] = useState(false);
+  const [crowned, setCrowned] = useState<string | null>(null);
 
   useEffect(() => {
     // deferred a tick — the linter flags synchronous setState in effects
@@ -24,6 +26,25 @@ export default function HistoryPage() {
     }, 0);
     return () => clearTimeout(id);
   }, []);
+
+  async function handleCloseSeason() {
+    if (
+      !window.confirm(
+        'End the current season? The player with the most wins is crowned champion, and the next game night starts a fresh season.'
+      )
+    )
+      return;
+    setClosing(true);
+    try {
+      const champ = await closeSeason();
+      setCrowned(champ);
+      setHall(await fetchHallOfFame());
+    } catch {
+      // leave the page as-is; the button stays available
+    } finally {
+      setClosing(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center px-4 py-10 text-white">
@@ -61,6 +82,57 @@ export default function HistoryPage() {
 
       {hall !== 'loading' && hall !== null && hall !== 'error' && hall.totalGames > 0 && (
         <div className="mt-10 flex w-full max-w-3xl flex-col gap-10 pb-16">
+          {crowned && (
+            <p className="anim-pop-in rounded-2xl bg-amber-400/15 px-4 py-3 text-center text-amber-200 ring-1 ring-amber-400/40">
+              👑 {crowned} crowned! A new season starts with the next game night.
+            </p>
+          )}
+          {/* Current season */}
+          {hall.currentSeason && hall.currentSeason.standings.length > 0 && (
+            <section className="anim-rise-in">
+              <h2 className="mb-3 text-center text-xs font-semibold uppercase tracking-[0.25em] text-indigo-400">
+                {hall.currentSeason.name} · since {hall.currentSeason.startedAt} ·{' '}
+                {hall.currentSeason.gamesPlayed}{' '}
+                {hall.currentSeason.gamesPlayed === 1 ? 'game' : 'games'}
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {hall.currentSeason.standings.map((s, i) => (
+                  <li
+                    key={s.profileId}
+                    className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 ring-1 ${
+                      i === 0
+                        ? 'bg-amber-400/10 ring-amber-400/40'
+                        : 'bg-indigo-900/70 ring-indigo-700/50'
+                    }`}
+                  >
+                    <span className="w-5 text-center font-display text-indigo-400">{i + 1}</span>
+                    <Avatar
+                      player={{ name: s.name, photo: s.photo }}
+                      sizeClass="h-9 w-9"
+                      textClass="text-sm"
+                    />
+                    <span className="min-w-0 flex-1 truncate font-semibold">
+                      {s.name} {i === 0 && s.wins > 0 && '🏅'}
+                    </span>
+                    <span className="text-sm tabular-nums text-amber-300">
+                      {s.wins} {s.wins === 1 ? 'win' : 'wins'}
+                    </span>
+                    <span className="font-mono text-sm tabular-nums text-indigo-300">
+                      {s.points} pts
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={handleCloseSeason}
+                disabled={closing}
+                className="mx-auto mt-3 block text-xs text-indigo-400 underline-offset-4 transition hover:text-indigo-200 hover:underline disabled:opacity-40"
+              >
+                {closing ? 'Crowning…' : '🏁 End the season & crown a champion'}
+              </button>
+            </section>
+          )}
+
           {/* All-time records */}
           {hall.records.length > 0 && (
             <section className="anim-rise-in">
@@ -150,6 +222,32 @@ export default function HistoryPage() {
               </table>
             </div>
           </section>
+
+          {/* Past season champions */}
+          {hall.pastSeasons.length > 0 && (
+            <section className="anim-rise-in" style={{ animationDelay: '180ms' }}>
+              <h2 className="mb-3 text-center text-xs font-semibold uppercase tracking-[0.25em] text-indigo-400">
+                Season champions
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {hall.pastSeasons.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl bg-indigo-900/70 px-4 py-3 ring-1 ring-amber-400/20"
+                  >
+                    <span className="font-display text-lg text-amber-400">🏆 {s.name}</span>
+                    <span className="min-w-0 flex-1 truncate font-semibold">
+                      {s.championName ?? '—'}
+                    </span>
+                    <span className="text-xs text-indigo-400">
+                      ended {s.endedAt} · {s.gamesPlayed}{' '}
+                      {s.gamesPlayed === 1 ? 'game' : 'games'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* Recent game nights */}
           <section className="anim-rise-in" style={{ animationDelay: '240ms' }}>

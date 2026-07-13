@@ -1,9 +1,18 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import { watchGame, watchPlayers, watchBuzzes, sendBuzz, sendShout, setFinalWager } from '@/lib/db';
+import {
+  watchGame,
+  watchPlayers,
+  watchBuzzes,
+  watchAnswers,
+  sendBuzz,
+  sendShout,
+  sendAnswer,
+  setFinalWager,
+} from '@/lib/db';
 import WagerInput from '@/components/host/WagerInput';
-import { Buzz, Game, Player } from '@/lib/types';
+import { Answer, Buzz, Game, Player } from '@/lib/types';
 import Avatar from '@/components/Avatar';
 import HomeLink from '@/components/HomeLink';
 
@@ -29,16 +38,19 @@ export default function PlayPage({
   const [game, setGame] = useState<Game | null | 'loading'>('loading');
   const [players, setPlayers] = useState<Player[]>([]);
   const [buzzes, setBuzzes] = useState<Buzz[]>([]);
+  const [answers, setAnswers] = useState<Answer[]>([]);
   const [myId, setMyId] = useState<string | null>(null);
   const [buzzing, setBuzzing] = useState(false);
   const [note, setNote] = useState('');
   const [noteSent, setNoteSent] = useState(false);
+  const [eaDraft, setEaDraft] = useState('');
 
   useEffect(() => {
     const unsubs = [
       watchGame(roomCode, setGame),
       watchPlayers(roomCode, setPlayers),
       watchBuzzes(roomCode, setBuzzes),
+      watchAnswers(roomCode, setAnswers),
     ];
     // localStorage isn't available during SSR; deferred via setTimeout to
     // keep the effect free of synchronous setState (rAF would never fire
@@ -115,11 +127,22 @@ export default function PlayPage({
   // ---- Controller ----
   const ranked = [...players].sort((a, b) => b.score - a.score);
   const myRank = ranked.findIndex((p) => p.id === me.id);
-  const armed = game.buzzerArmed === true && game.status === 'in_progress';
+  // Everyone Answers replaces the buzzer with a typed answer; lightning
+  // rounds re-arm the buzzer even though the status is final_round.
+  const eaStep =
+    game.stage?.step === 'ea_answering' || game.stage?.step === 'ea_judging';
+  const armed =
+    game.buzzerArmed === true &&
+    !eaStep &&
+    (game.status === 'in_progress' ||
+      (game.status === 'final_round' && game.lightning != null));
   const round = game.buzzerRound ?? 0;
   const roundBuzzes = buzzes.filter((b) => b.round === round);
   const myBuzzIndex = roundBuzzes.findIndex((b) => b.playerId === me.id);
   const hasBuzzed = myBuzzIndex >= 0;
+  const iAmEaOwner = game.stage?.eaOwnerId === me.id;
+  const myAnswer =
+    answers.find((a) => a.round === round && a.playerId === me.id) ?? null;
 
   async function handleBuzz() {
     if (!armed || hasBuzzed || buzzing || !me) return;
@@ -144,6 +167,13 @@ export default function PlayPage({
     setNote('');
     setNoteSent(true);
     setTimeout(() => setNoteSent(false), 2000);
+  }
+
+  async function handleEaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!eaDraft.trim() || !me || myAnswer) return;
+    await sendAnswer(roomCode, me, round, eaDraft.trim());
+    setEaDraft('');
   }
 
   return (
@@ -183,11 +213,13 @@ export default function PlayPage({
           {me.finalWager == null ? (
             <>
               <p className="text-center text-sm text-indigo-300">
-                Secretly wager up to your score. Correct wins it, wrong loses it.
+                Secretly wager up to your score — everyone can wager at least{' '}
+                {game.settings.pointScale[0]}, so nobody&apos;s out of it. Correct wins
+                it, wrong loses it (never below 0).
               </p>
               <WagerInput
                 label="Your secret wager"
-                max={Math.max(me.score, 0)}
+                max={Math.max(me.score, game.settings.pointScale[0])}
                 onConfirm={(amount) => setFinalWager(me.id, amount)}
               />
             </>
@@ -198,7 +230,17 @@ export default function PlayPage({
           )}
         </div>
       )}
-      {game.status === 'final_round' && game.finalRound?.step !== 'wagers' && (
+      {game.status === 'final_round' && game.lightning != null && (
+        <div className="anim-rise-in w-full max-w-sm rounded-3xl bg-indigo-900/70 p-4 text-center ring-1 ring-amber-400/40">
+          <p className="font-display text-xl uppercase tracking-wide text-amber-400">
+            ⚡ Lightning round
+          </p>
+          <p className="mt-1 text-sm text-indigo-300">
+            Rapid fire — buzz fast, +{game.lightning.perCorrect} per correct, no penalties.
+          </p>
+        </div>
+      )}
+      {game.status === 'final_round' && game.lightning == null && game.finalRound?.step !== 'wagers' && (
         <div className="anim-rise-in w-full max-w-sm rounded-3xl bg-indigo-900/70 p-6 text-center ring-1 ring-indigo-700/50">
           <p className="font-display text-xl uppercase tracking-wide text-amber-400">
             Final Wager
@@ -206,6 +248,48 @@ export default function PlayPage({
           <p className="mt-2 text-sm text-indigo-300">
             👀 Eyes on the big screen — answer out loud when the question shows!
           </p>
+        </div>
+      )}
+
+      {/* Everyone Answers: typed answer from this phone */}
+      {eaStep && (
+        <div className="anim-pop-in flex w-full max-w-sm flex-col items-center gap-4 rounded-3xl bg-indigo-900/70 p-6 ring-1 ring-emerald-400/40">
+          <p className="font-display text-2xl uppercase tracking-wide text-emerald-300">
+            📱 Everyone Answers
+          </p>
+          {iAmEaOwner ? (
+            <p className="text-center text-sm text-indigo-300">
+              This one&apos;s about <span className="font-bold text-white">you</span> — sit
+              tight and enjoy the guesses 🍿
+            </p>
+          ) : myAnswer ? (
+            <p className="text-center text-lg font-semibold text-emerald-300">
+              🔒 Locked in: “{myAnswer.text}”
+            </p>
+          ) : game.stage?.step === 'ea_judging' ? (
+            <p className="text-center text-sm text-indigo-300">
+              Time&apos;s up — answers are on the big screen.
+            </p>
+          ) : (
+            <form onSubmit={handleEaSubmit} className="flex w-full gap-2">
+              <input
+                value={eaDraft}
+                onChange={(e) => setEaDraft(e.target.value)}
+                maxLength={120}
+                autoFocus
+                placeholder="Type your answer…"
+                aria-label="Your answer"
+                className="min-w-0 flex-1 rounded-2xl border border-emerald-500/50 bg-indigo-950 px-4 py-3 text-base placeholder:text-indigo-500 focus:border-emerald-400 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={!eaDraft.trim()}
+                className="shrink-0 rounded-2xl bg-gradient-to-b from-emerald-300 to-emerald-500 px-5 py-3 font-bold text-emerald-950 transition active:scale-95 disabled:opacity-40"
+              >
+                Lock in
+              </button>
+            </form>
+          )}
         </div>
       )}
 

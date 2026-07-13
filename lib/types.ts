@@ -5,7 +5,12 @@ export type GameStatus =
   | 'final_round'
   | 'completed';
 
-export type WildcardType = 'daily_double' | 'double_or_nothing' | 'steal' | 'swap';
+export type WildcardType =
+  | 'daily_double'
+  | 'double_or_nothing'
+  | 'steal'
+  | 'swap'
+  | 'everyone_answers';
 
 export interface GameSettings {
   penaltyOnWrong: boolean;
@@ -22,7 +27,9 @@ export type StageStep =
   | 'dd_wager'
   | 'swap_pick'
   | 'question'
-  | 'steal_pick';
+  | 'steal_pick'
+  | 'ea_answering'
+  | 'ea_judging';
 
 export interface StageState {
   activeTileId: string;
@@ -32,10 +39,23 @@ export interface StageState {
   ddWager: number;
   stealWinnerId: string | null;
   swapPickerId: string | null;
+  // Everyone Answers: the tile owner sits out — phones need this without
+  // watching the tiles collection, so it's denormalized onto the stage.
+  eaOwnerId: string | null;
   lockedOut: string[]; // playerIds who answered wrong this question
   timerEndsAt: number | null; // wall-clock deadline while running
   timerRemaining: number; // seconds, meaningful while paused
   timerDuration: number;
+}
+
+// Lightning round: rapid-fire buzzing through the unused question pool,
+// run between the board and the Final Wager. Lives on the game doc so
+// stage, console, and phones all follow along.
+export interface LightningState {
+  questionIds: string[];
+  index: number;
+  endsAt: number | null; // wall-clock; null until the host starts the clock
+  perCorrect: number;
 }
 
 // Final round, shared the same way. Wagers come from each player's phone.
@@ -60,6 +80,8 @@ export interface Game {
   buzzerRound?: number;
   stage?: StageState | null;
   finalRound?: FinalRoundState | null;
+  // Non-null while a lightning round is running (status stays final_round).
+  lightning?: LightningState | null;
   // Last scoring win — the stage watches this to play victory anthems,
   // no matter which surface (stage or console) did the judging.
   lastWin?: { playerId: string; at: number } | null;
@@ -98,6 +120,15 @@ export interface Anthem {
   cover: string;
 }
 
+// Night-of counters, incremented as the game runs and archived with the
+// result. Absent on players from before this feature existed.
+export interface PlayerStats {
+  buzzes: number;
+  correct: number;
+  wrong: number;
+  stumps: number; // times their own question stumped the whole room
+}
+
 export interface Player {
   id: string;
   roomCode: string;
@@ -110,6 +141,19 @@ export interface Player {
   photo?: string | null;
   // Final-round wager, submitted from the player's own phone.
   finalWager?: number | null;
+  stats?: PlayerStats;
+}
+
+// A typed answer from a phone during an Everyone Answers tile, grouped by
+// buzzer round the same way buzzes are.
+export interface Answer {
+  id: string;
+  roomCode: string;
+  playerId: string;
+  name: string;
+  round: number;
+  text: string;
+  at: number;
 }
 
 export interface Question {

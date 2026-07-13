@@ -6,6 +6,7 @@ import {
   watchPlayers,
   watchQuestions,
   watchTiles,
+  watchAnswers,
   openTile,
   updateStage,
   closeStage,
@@ -23,11 +24,13 @@ import {
   judgeStealSkip,
   performSwap,
   nobodyGotIt,
+  applyEveryoneAnswers,
 } from '@/lib/judging';
 import { generateBoard, settingsForGroup, resolveDailyDouble } from '@/lib/gameLogic';
-import { Game, Player, Question, Tile } from '@/lib/types';
+import { Answer, Game, Player, Question, Tile } from '@/lib/types';
 import { WILDCARD_INFO } from '@/components/host/QuestionModal';
 import BuzzerPanel from '@/components/host/BuzzerPanel';
+import LightningRound from '@/components/host/LightningRound';
 import Timer from '@/components/host/Timer';
 import WagerInput from '@/components/host/WagerInput';
 import AdminPanel from '@/components/host/AdminPanel';
@@ -177,7 +180,7 @@ export default function ConsolePage({
         />
       )}
       {game.status === 'final_round' && (
-        <ConsoleFinal game={game} players={players} />
+        <ConsoleFinal game={game} players={players} questions={questions} />
       )}
       {game.status === 'completed' && (
         <div className="anim-rise-in w-full max-w-md rounded-3xl bg-indigo-900/70 p-6 text-center ring-1 ring-indigo-700/50">
@@ -342,9 +345,20 @@ function ConsoleQuestion({
   const stage = game.stage!;
   const [resolving, setResolving] = useState(false);
   const [stealVictimId, setStealVictimId] = useState<string | null>(null);
+  const [eaVerdicts, setEaVerdicts] = useState<Record<string, boolean>>({});
+  const [answers, setAnswers] = useState<Answer[]>([]);
   const owner = players.find((p) => p.id === tile.ownerPlayerId);
   const ddPlayer = players.find((p) => p.id === stage.ddPlayerId);
   const wildcard = tile.wildcardType;
+  const isEA = wildcard === 'everyone_answers';
+
+  useEffect(() => {
+    if (!isEA) return;
+    return watchAnswers(game.roomCode, setAnswers);
+  }, [game.roomCode, isEA]);
+
+  const roundAnswers = answers.filter((a) => a.round === (game.buzzerRound ?? 0));
+  const eaAnswerers = players.filter((p) => p.id !== tile.ownerPlayerId);
 
   async function run(fn: () => Promise<void>) {
     setResolving(true);
@@ -387,7 +401,9 @@ function ConsoleQuestion({
                   ? 'dd_pick'
                   : wildcard === 'swap'
                     ? 'swap_pick'
-                    : 'question',
+                    : wildcard === 'everyone_answers'
+                      ? 'ea_answering'
+                      : 'question',
             })
           }
           className={`rounded-2xl bg-gradient-to-br px-6 py-4 text-lg font-bold text-white shadow-lg transition active:scale-[0.98] ${WILDCARD_INFO[wildcard].world}`}
@@ -516,11 +532,11 @@ function ConsoleQuestion({
 
           <div className="flex gap-2">
             <button
-              onClick={() => run(() => nobodyGotIt(game, tile, question))}
+              onClick={() => run(() => nobodyGotIt(game, tile, question, players))}
               disabled={resolving}
               className="flex-1 rounded-xl border border-indigo-700 px-4 py-2.5 text-sm text-indigo-300 transition hover:bg-indigo-800/60"
             >
-              No one got it
+              No one got it{owner ? ` — ${owner.name} +${tile.pointValue}` : ''}
             </button>
             <button
               onClick={() => closeStage(game.roomCode)}
@@ -531,6 +547,94 @@ function ConsoleQuestion({
             </button>
           </div>
         </>
+      )}
+
+      {stage.step === 'ea_answering' && (
+        <div className="rounded-3xl bg-indigo-900/70 p-5 ring-1 ring-emerald-500/40">
+          <p className="text-center font-display text-2xl text-emerald-300">
+            {roundAnswers.length} / {eaAnswerers.length} answers in
+          </p>
+          <ul className="mt-3 flex flex-wrap justify-center gap-2">
+            {eaAnswerers.map((p) => {
+              const answered = roundAnswers.some((a) => a.playerId === p.id);
+              return (
+                <li
+                  key={p.id}
+                  className={`rounded-full px-3 py-1 text-sm ${
+                    answered
+                      ? 'bg-emerald-500/20 text-emerald-200'
+                      : 'bg-indigo-800/70 text-indigo-300'
+                  }`}
+                >
+                  {p.name} {answered ? '🔒' : '…'}
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            onClick={() => updateStage(game.roomCode, { step: 'ea_judging' })}
+            disabled={roundAnswers.length === 0}
+            className="mt-4 w-full rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-3.5 font-bold text-indigo-950 transition active:scale-[0.98] disabled:opacity-40"
+          >
+            Reveal the answers on stage →
+          </button>
+        </div>
+      )}
+
+      {stage.step === 'ea_judging' && (
+        <div className="rounded-3xl bg-indigo-900/70 p-4 ring-1 ring-emerald-500/40">
+          <p className="mb-2.5 text-center text-xs uppercase tracking-widest text-indigo-400">
+            Judge each answer, then apply
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {roundAnswers.map((a) => (
+              <li
+                key={a.id}
+                className="flex items-center justify-between gap-2 rounded-xl bg-indigo-800/70 px-3 py-1.5"
+              >
+                <span className="min-w-0 truncate text-sm">
+                  <span className="font-medium">{a.name}</span>{' '}
+                  <span className="text-indigo-300">“{a.text}”</span>
+                </span>
+                <span className="flex shrink-0 gap-1.5">
+                  <button
+                    onClick={() => setEaVerdicts((v) => ({ ...v, [a.playerId]: false }))}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full font-bold transition active:scale-90 ${
+                      eaVerdicts[a.playerId] === false
+                        ? 'bg-red-600 ring-2 ring-red-300'
+                        : 'bg-red-900/80'
+                    }`}
+                    aria-label={`${a.name} wrong`}
+                  >
+                    ✗
+                  </button>
+                  <button
+                    onClick={() => setEaVerdicts((v) => ({ ...v, [a.playerId]: true }))}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full font-bold transition active:scale-90 ${
+                      eaVerdicts[a.playerId] === true
+                        ? 'bg-emerald-500 ring-2 ring-emerald-200'
+                        : 'bg-emerald-900/80'
+                    }`}
+                    aria-label={`${a.name} correct`}
+                  >
+                    ✓
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={() =>
+              run(() => applyEveryoneAnswers(game, tile, question, players, eaVerdicts))
+            }
+            disabled={
+              resolving || roundAnswers.some((a) => eaVerdicts[a.playerId] === undefined)
+            }
+            className="mt-3 w-full rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-3.5 font-bold text-indigo-950 transition active:scale-[0.98] disabled:opacity-40"
+          >
+            {resolving ? 'Applying…' : 'Apply verdicts'}
+          </button>
+        </div>
       )}
 
       {stage.step === 'steal_pick' && (
@@ -611,7 +715,15 @@ function PlayerPickList({
 
 /* ---- Final round ---- */
 
-function ConsoleFinal({ game, players }: { game: Game; players: Player[] }) {
+function ConsoleFinal({
+  game,
+  players,
+  questions,
+}: {
+  game: Game;
+  players: Player[];
+  questions: Question[];
+}) {
   const fr = game.finalRound ?? null;
   const [verdicts, setVerdicts] = useState<Record<string, boolean>>({});
   const [resolving, setResolving] = useState(false);
@@ -632,6 +744,15 @@ function ConsoleFinal({ game, players }: { game: Game; players: Player[] }) {
     await updateGame(game.roomCode, { status: 'completed', finalRound: null });
   }
 
+  // Lightning round: full controls with the private answer visible.
+  if (game.lightning) {
+    return (
+      <div className="anim-rise-in w-full max-w-md">
+        <LightningRound game={game} players={players} questions={questions} compact />
+      </div>
+    );
+  }
+
   if (fr === null) {
     return (
       <div className="anim-rise-in w-full max-w-md rounded-3xl bg-indigo-900/70 p-6 text-center ring-1 ring-indigo-700/50">
@@ -640,7 +761,8 @@ function ConsoleFinal({ game, players }: { game: Game; players: Player[] }) {
         </p>
         <p className="mt-2 text-sm text-indigo-300">
           Pick the final question on the stage screen (reroll / write your
-          own), then wagers open on everyone&apos;s phones automatically.
+          own — or run a ⚡ lightning round first), then wagers open on
+          everyone&apos;s phones automatically.
         </p>
       </div>
     );

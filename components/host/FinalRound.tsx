@@ -2,16 +2,22 @@
 
 import { useMemo, useState } from 'react';
 import { Game, Player, Question } from '@/lib/types';
-import { pickFinalRoundQuestion, resolveDailyDouble } from '@/lib/gameLogic';
+import {
+  pickFinalRoundQuestion,
+  pickLightningQuestions,
+  resolveDailyDouble,
+} from '@/lib/gameLogic';
 import {
   updatePlayerScore,
   updateGame,
   markQuestionUsed,
   startFinalRound,
+  startLightning,
   updateFinalRound,
   setFinalWager,
 } from '@/lib/db';
 import Avatar from '@/components/Avatar';
+import LightningRound from './LightningRound';
 
 interface Props {
   game: Game;
@@ -67,6 +73,13 @@ export default function FinalRound({ game, players, questions }: Props) {
     await updateGame(game.roomCode, { status: 'completed', finalRound: null });
   }
 
+  // Lightning takes over the whole final-round screen while it runs.
+  if (game.lightning) {
+    return <LightningRound game={game} players={players} questions={questions} />;
+  }
+
+  const lightningPool = pickLightningQuestions(questions);
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10 text-white">
       <p className="anim-fade-in font-display text-3xl uppercase tracking-[0.2em] text-amber-400 drop-shadow-[0_4px_20px_rgba(246,196,83,0.35)] sm:text-4xl">
@@ -76,6 +89,17 @@ export default function FinalRound({ game, players, questions }: Props) {
       {/* Setup — pick the question */}
       {fr === null && (
         <div className="anim-rise-in mt-8 flex w-full max-w-lg flex-col items-center gap-6">
+          {lightningPool.length >= 3 && (
+            <button
+              onClick={() =>
+                startLightning(game.roomCode, lightningPool, game.settings.pointScale[0])
+              }
+              className="w-full rounded-2xl border-2 border-amber-400/60 px-6 py-4 text-lg font-bold text-amber-300 transition hover:bg-amber-400/10 active:scale-[0.98]"
+            >
+              ⚡ Lightning round first — 60s of rapid fire ({lightningPool.length} unused
+              questions)
+            </button>
+          )}
           {!useCustom ? (
             <>
               <p className="text-indigo-300">One last question, drawn from the unused pool:</p>

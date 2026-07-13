@@ -24,6 +24,21 @@ file is for working on the code.
   `game.archived`. Client in `lib/archive.ts`, page at `/history`. NEVER move
   live-game data to Supabase (free tier auto-pauses;
   `.github/workflows/keep-alive.yml` pings it twice weekly).
+  Tables: profiles, games (→ season_id), game_results (score/rank/wager +
+  night-of stats: buzzes/correct/wrong/stumps), seasons. Games attach to the
+  open season (created lazily as "Season N"); closing a season from /history
+  crowns the champion (most wins, points tiebreak).
+- **Game mechanics added 2026-07-13** (all verified end-to-end locally):
+  scores floor at 0 everywhere (`clampScore` in gameLogic); stump bonus —
+  "no one got it" pays the tile owner (`nobodyGotIt` needs the players
+  array); Everyone Answers wildcard (phones type simultaneously via the
+  `answers` collection, owner sits out via `stage.eaOwnerId`, no wrong
+  penalty, 3+ players); lightning round (`game.lightning`, runs under
+  final_round status before wagers, +lowest-tile-value per correct, no
+  penalties); final wager floor — everyone may wager at least
+  `pointScale[0]`; wildcard density ≈ tiles/7 clamped 1–6 (explicit
+  wildcardCount is no longer honored); per-player `stats` counters bump
+  atomically during judging and archive into game_results.
 - **Hosting: Cloudflare Workers** via OpenNext adapter. Deploys happen ONLY
   through CI (`.github/workflows/deploy.yml`: tsc → lint → vitest → deploy on
   push to main). Manual fallback: `npm run deploy` with `.env.cloudflare`.

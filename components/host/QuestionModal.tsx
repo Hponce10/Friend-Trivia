@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { Game, Player, Question, Tile, WildcardType } from '@/lib/types';
-import { updateStage, closeStage, updateQuestion } from '@/lib/db';
+import { useEffect, useState } from 'react';
+import { Answer, Game, Player, Question, Tile, WildcardType } from '@/lib/types';
+import { updateStage, closeStage, updateQuestion, watchAnswers } from '@/lib/db';
 import {
   judgeCorrect,
   judgeWrong,
@@ -10,6 +10,7 @@ import {
   judgeStealSkip,
   performSwap,
   nobodyGotIt,
+  applyEveryoneAnswers,
 } from '@/lib/judging';
 import WagerInput from './WagerInput';
 import Timer from './Timer';
@@ -55,6 +56,13 @@ export const WILDCARD_INFO: Record<
     world: 'from-teal-500 via-cyan-700 to-slate-900',
     button: 'bg-white text-teal-800 hover:bg-teal-100',
   },
+  everyone_answers: {
+    title: 'Everyone Answers!',
+    emoji: '📱',
+    blurb: 'No buzzers — every phone types an answer at the same time. Correct earns the tile, wrong costs nothing.',
+    world: 'from-emerald-500 via-teal-700 to-cyan-950',
+    button: 'bg-white text-emerald-800 hover:bg-emerald-100',
+  },
 };
 
 // The stage rendering of the live question. All interactive state lives in
@@ -66,10 +74,20 @@ export default function QuestionModal({ game, tile, question, players }: Props) 
   const [resolving, setResolving] = useState(false);
   const [editingAnswer, setEditingAnswer] = useState(false);
   const [answerDraft, setAnswerDraft] = useState(question.answer);
+  const [eaVerdicts, setEaVerdicts] = useState<Record<string, boolean>>({});
+  const [answers, setAnswers] = useState<Answer[]>([]);
+
+  const isEA = wildcard === 'everyone_answers';
+  useEffect(() => {
+    if (!isEA) return;
+    return watchAnswers(game.roomCode, setAnswers);
+  }, [game.roomCode, isEA]);
 
   const owner = players.find((p) => p.id === tile.ownerPlayerId);
   const ddPlayer = players.find((p) => p.id === stage.ddPlayerId);
   const roomCode = game.roomCode;
+  const roundAnswers = answers.filter((a) => a.round === (game.buzzerRound ?? 0));
+  const eaAnswerers = players.filter((p) => p.id !== tile.ownerPlayerId);
 
   async function withResolving(fn: () => Promise<void>) {
     setResolving(true);
@@ -104,7 +122,9 @@ export default function QuestionModal({ game, tile, question, players }: Props) 
                     ? 'dd_pick'
                     : wildcard === 'swap'
                       ? 'swap_pick'
-                      : 'question',
+                      : wildcard === 'everyone_answers'
+                        ? 'ea_answering'
+                        : 'question',
               })
             }
             className={`mt-4 rounded-2xl px-10 py-4 text-lg font-bold shadow-lg transition active:scale-[0.98] ${info.button}`}
@@ -329,13 +349,129 @@ export default function QuestionModal({ game, tile, question, players }: Props) 
               </ul>
 
               <button
-                onClick={() => withResolving(() => nobodyGotIt(game, tile, question))}
+                onClick={() => withResolving(() => nobodyGotIt(game, tile, question, players))}
                 disabled={resolving}
                 className="mt-4 w-full rounded-xl border border-indigo-700 px-4 py-2.5 text-sm text-indigo-400 transition hover:bg-indigo-800/60 hover:text-indigo-200"
               >
-                No one got it — close question
+                No one got it — {owner ? `${owner.name} banks ${tile.pointValue} 🧠` : 'close question'}
               </button>
             </div>
+          </div>
+        )}
+
+        {stage.step === 'ea_answering' && (
+          <div className="anim-rise-in">
+            <p className="text-center text-xs font-semibold uppercase tracking-[0.25em] text-emerald-400/90">
+              📱 Everyone answers · about {owner?.name ?? '???'} · {tile.pointValue}
+            </p>
+            <p className="mx-auto mt-6 min-h-24 max-w-xl text-center text-3xl font-semibold leading-snug tracking-tight sm:text-4xl">
+              {question.text}
+            </p>
+            <p className="mt-4 text-center text-sm text-indigo-300">
+              Type your answer on your phone — {owner?.name ?? 'the subject'} stays quiet.
+            </p>
+            <p className="mt-6 text-center font-display text-3xl text-emerald-300">
+              {roundAnswers.length} / {eaAnswerers.length} answers in
+            </p>
+            <ul className="mt-3 flex flex-wrap justify-center gap-2">
+              {eaAnswerers.map((p) => {
+                const answered = roundAnswers.some((a) => a.playerId === p.id);
+                return (
+                  <li
+                    key={p.id}
+                    className={`rounded-full px-3 py-1 text-sm ${
+                      answered
+                        ? 'bg-emerald-500/20 text-emerald-200'
+                        : 'bg-indigo-800/70 text-indigo-300'
+                    }`}
+                  >
+                    {p.name} {answered ? '🔒' : '…'}
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              onClick={() => updateStage(roomCode, { step: 'ea_judging' })}
+              disabled={roundAnswers.length === 0}
+              className="mx-auto mt-8 block rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-8 py-4 text-lg font-bold text-indigo-950 shadow-[0_8px_30px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+            >
+              Reveal the answers →
+            </button>
+          </div>
+        )}
+
+        {stage.step === 'ea_judging' && (
+          <div className="anim-rise-in">
+            <p className="text-center text-xs font-semibold uppercase tracking-[0.25em] text-emerald-400/90">
+              📱 Everyone answers · about {owner?.name ?? '???'} · {tile.pointValue}
+            </p>
+            <p className="mx-auto mt-4 max-w-xl text-center text-xl font-semibold leading-snug">
+              {question.text}
+            </p>
+            <p className="anim-reveal-flip mx-auto mt-4 w-fit rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-2.5 text-xl font-bold text-indigo-950 shadow-[0_4px_24px_rgba(246,196,83,0.4)]">
+              {question.answer}
+            </p>
+            <ul className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {roundAnswers.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center justify-between gap-3 rounded-xl bg-indigo-800/80 px-4 py-2.5 ring-1 ring-white/5"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-xs font-semibold text-indigo-400">{a.name}</span>
+                    <span className="block truncate font-medium">“{a.text}”</span>
+                  </span>
+                  <span className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => setEaVerdicts((v) => ({ ...v, [a.playerId]: false }))}
+                      className={`flex h-11 w-11 items-center justify-center rounded-full font-bold transition active:scale-95 ${
+                        eaVerdicts[a.playerId] === false
+                          ? 'bg-red-600 ring-2 ring-red-300'
+                          : 'bg-red-900/80 hover:bg-red-700'
+                      }`}
+                      aria-label={`${a.name} wrong`}
+                    >
+                      ✗
+                    </button>
+                    <button
+                      onClick={() => setEaVerdicts((v) => ({ ...v, [a.playerId]: true }))}
+                      className={`flex h-11 w-11 items-center justify-center rounded-full font-bold transition active:scale-95 ${
+                        eaVerdicts[a.playerId] === true
+                          ? 'bg-emerald-500 ring-2 ring-emerald-200'
+                          : 'bg-emerald-900/80 hover:bg-emerald-700'
+                      }`}
+                      aria-label={`${a.name} correct`}
+                    >
+                      ✓
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {eaAnswerers.some((p) => !roundAnswers.some((a) => a.playerId === p.id)) && (
+              <p className="mt-3 text-center text-xs text-indigo-400">
+                No answer ={' '}
+                {eaAnswerers
+                  .filter((p) => !roundAnswers.some((a) => a.playerId === p.id))
+                  .map((p) => p.name)
+                  .join(', ')}{' '}
+                — counts as a miss.
+              </p>
+            )}
+            <button
+              onClick={() =>
+                withResolving(() =>
+                  applyEveryoneAnswers(game, tile, question, players, eaVerdicts)
+                )
+              }
+              disabled={
+                resolving ||
+                roundAnswers.some((a) => eaVerdicts[a.playerId] === undefined)
+              }
+              className="mx-auto mt-6 block w-full max-w-sm rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-4 text-lg font-bold text-indigo-950 shadow-[0_8px_30px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+            >
+              {resolving ? 'Applying…' : 'Apply — correct answers bank the tile'}
+            </button>
           </div>
         )}
 
