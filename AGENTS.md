@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 Jeopardy-style party game built from questions friends submit about themselves.
 Feature-complete and **live**: https://friend-trivia.hectorponce16238.workers.dev
-Repo: `Hponce10/Friend-Trivia` (private). README has full feature docs; this
+Repo: `Hponce10/Friend-Trivia` (public). README has full feature docs; this
 file is for working on the code.
 
 ## Architecture (decided — see README "Architecture decisions")
