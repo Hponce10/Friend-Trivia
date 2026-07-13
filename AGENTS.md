@@ -117,6 +117,15 @@ GitHub + Cloudflare (infra), Supabase (schema via `apply_migration`, checks
 via `execute_sql`), Context7 (docs — user needs a free API key, quota
 exhausted), Vercel (unused — documented escape hatch only).
 
+## Collaboration setup (since 2026-07-13)
+
+The repo is PUBLIC with a collaborator (benjaminmasso, write access).
+`main` is protected: collaborators merge via PR with 1 approving review and
+a green `check-and-deploy` run (the workflow runs checks-only on PRs and
+deploys only on push to main). The repo owner is exempt (enforce_admins
+off), so agent sessions can still push to main directly. Never commit
+secrets — the repo is world-readable now.
+
 ## Pending / known issues
 
 - Final-round setup happens on the stage; console mirrors after start.
