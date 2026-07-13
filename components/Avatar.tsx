@@ -4,7 +4,7 @@ import { Player } from '@/lib/types';
 
 const FALLBACK_HUES = [15, 85, 155, 225, 295, 340, 45, 195];
 
-function hueFor(name: string): number {
+export function hueFor(name: string): number {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
   return FALLBACK_HUES[h % FALLBACK_HUES.length];

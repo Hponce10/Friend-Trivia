@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Game, Player } from '@/lib/types';
 import { playAnthem } from '@/lib/anthem';
 import { archiveGame } from '@/lib/archive';
 import { updateGame } from '@/lib/db';
+import { shareRecap } from '@/lib/recap';
 import Avatar from '@/components/Avatar';
 
 interface Props {
@@ -18,6 +19,9 @@ const PODIUM_HEIGHTS = ['h-24', 'h-36', 'h-16'];
 const PODIUM_MEDALS = ['🥈', '🥇', '🥉'];
 
 export default function ResultsScreen({ game, players }: Props) {
+  const [recapState, setRecapState] = useState<
+    'idle' | 'rendering' | 'downloaded' | 'error'
+  >('idle');
   const sorted = [...players].sort((a, b) => b.score - a.score);
   const winner = sorted[0];
   const podium = PODIUM_ORDER.map((rank) => ({ player: sorted[rank], rank }));
@@ -130,9 +134,28 @@ export default function ResultsScreen({ game, players }: Props) {
       )}
 
       <div
-        className="anim-fade-in mt-12 flex gap-3"
+        className="anim-fade-in mt-12 flex flex-wrap justify-center gap-3"
         style={{ animationDelay: '1400ms' }}
       >
+        <button
+          type="button"
+          disabled={recapState === 'rendering'}
+          onClick={() => {
+            setRecapState('rendering');
+            shareRecap(game, players)
+              .then((how) => setRecapState(how === 'downloaded' ? 'downloaded' : 'idle'))
+              .catch(() => setRecapState('error'));
+          }}
+          className="rounded-2xl border border-indigo-600 px-6 py-3 text-indigo-300 transition hover:bg-indigo-800/60 hover:text-white active:scale-[0.98] disabled:opacity-60"
+        >
+          {recapState === 'rendering'
+            ? '📸 Rendering…'
+            : recapState === 'downloaded'
+              ? '✅ Saved!'
+              : recapState === 'error'
+                ? '📸 Try again?'
+                : '📸 Share recap'}
+        </button>
         <Link
           href="/history"
           className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-400 px-6 py-3 font-semibold text-indigo-950 shadow-[0_4px_18px_rgba(246,196,83,0.3)] transition hover:brightness-105 active:scale-[0.98]"
