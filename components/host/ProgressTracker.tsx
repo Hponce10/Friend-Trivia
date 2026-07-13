@@ -18,6 +18,7 @@ export default function ProgressTracker({ game, players, questions }: Props) {
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [nudgeCopied, setNudgeCopied] = useState(false);
   const [submitUrl, setSubmitUrl] = useState('');
 
   // window isn't available during SSR; set the URL after mount (deferred a
@@ -39,6 +40,24 @@ export default function ProgressTracker({ game, players, questions }: Props) {
     await navigator.clipboard.writeText(submitUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  // Ready-to-paste group-chat nudge. Player docs only exist after submission,
+  // so the message names who's in and lets the group chat shame the rest.
+  function nudgeMessage(): string {
+    const names = players.filter((p) => p.submitted).map((p) => p.name);
+    if (names.length === 0) {
+      return `🧠 Friend Trivia game night is ON! Submit your 10 questions: ${submitUrl}`;
+    }
+    const listed = names.slice(0, 6).join(', ');
+    const more = names.length > 6 ? ` +${names.length - 6} more` : '';
+    return `🧠 Friend Trivia: ${names.length} ${names.length === 1 ? 'player is' : 'players are'} locked in (${listed}${more}). Not on that list? Get your questions in: ${submitUrl}`;
+  }
+
+  async function handleNudgeCopy() {
+    await navigator.clipboard.writeText(nudgeMessage());
+    setNudgeCopied(true);
+    setTimeout(() => setNudgeCopied(false), 2000);
   }
 
   async function handleBuildBoard() {
@@ -85,6 +104,19 @@ export default function ProgressTracker({ game, players, questions }: Props) {
           >
             {copied ? '✓ Link copied' : 'Copy submission link'}
           </button>
+          <button
+            onClick={handleNudgeCopy}
+            className={`w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
+              nudgeCopied
+                ? 'bg-emerald-500 text-white'
+                : 'border border-indigo-600 text-indigo-300 hover:bg-indigo-800/60 hover:text-white'
+            }`}
+          >
+            {nudgeCopied ? '✓ Nudge copied — paste it in the chat' : '📣 Copy nudge for the group chat'}
+          </button>
+          <p className="-mt-2 text-center text-xs text-indigo-400">
+            Names who&apos;s in, calls out who&apos;s not, includes the link.
+          </p>
         </div>
 
         {/* Players card */}
