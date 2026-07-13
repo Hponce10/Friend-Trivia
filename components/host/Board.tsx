@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import { Player, Tile as TileType } from '@/lib/types';
 import Tile from './Tile';
 
@@ -10,6 +11,15 @@ interface Props {
   onTileClick: (tile: TileType) => void;
 }
 
+// Difficulty tier names by row, matching the submission form's levels.
+const LEVEL_LABELS = [
+  'Everyone Knows',
+  'Most Would Know',
+  'Half Might Know',
+  'Few Would Know',
+  'Maybe One Person Knows',
+];
+
 export default function Board({ players, tiles, pointScale, onTileClick }: Props) {
   const many = players.length > 6;
 
@@ -18,9 +28,10 @@ export default function Board({ players, tiles, pointScale, onTileClick }: Props
       <div
         className="grid gap-1.5 sm:gap-2"
         style={{
-          gridTemplateColumns: `repeat(${players.length}, minmax(${many ? 96 : 120}px, 1fr))`,
+          gridTemplateColumns: `5.5rem repeat(${players.length}, minmax(${many ? 96 : 120}px, 1fr))`,
         }}
       >
+        <div />
         {players.map((p) => (
           <div
             key={p.id}
@@ -33,25 +44,35 @@ export default function Board({ players, tiles, pointScale, onTileClick }: Props
           </div>
         ))}
 
-        {pointScale.map((value, row) =>
-          players.map((p, col) => {
-            const tile = tiles.find(
-              (t) => t.ownerPlayerId === p.id && t.pointValue === value
-            );
-            if (!tile) {
-              return <div key={`${p.id}-${value}`} className="aspect-[4/3]" />;
-            }
-            return (
-              <Tile
-                key={tile.id}
-                tile={tile}
-                compact={many}
-                index={row * players.length + col}
-                onClick={() => onTileClick(tile)}
-              />
-            );
-          })
-        )}
+        {pointScale.map((value, row) => (
+          <Fragment key={value}>
+            <div className="flex flex-col items-end justify-center pr-2 text-right">
+              <span className="font-display text-sm tracking-wide text-amber-400/90">
+                LVL {row + 1}
+              </span>
+              <span className="text-[10px] font-semibold uppercase leading-tight tracking-wider text-indigo-400">
+                {LEVEL_LABELS[row] ?? ''}
+              </span>
+            </div>
+            {players.map((p, col) => {
+              const tile = tiles.find(
+                (t) => t.ownerPlayerId === p.id && t.pointValue === value
+              );
+              if (!tile) {
+                return <div key={`${p.id}-${value}`} className="aspect-[4/3]" />;
+              }
+              return (
+                <Tile
+                  key={tile.id}
+                  tile={tile}
+                  compact={many}
+                  index={row * players.length + col}
+                  onClick={() => onTileClick(tile)}
+                />
+              );
+            })}
+          </Fragment>
+        ))}
       </div>
     </div>
   );

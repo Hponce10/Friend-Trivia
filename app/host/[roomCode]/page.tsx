@@ -11,6 +11,8 @@ import QuestionModal from '@/components/host/QuestionModal';
 import FinalRound from '@/components/host/FinalRound';
 import ResultsScreen from '@/components/host/ResultsScreen';
 import AdminPanel from '@/components/host/AdminPanel';
+import GuideModal from '@/components/home/GuideModal';
+import { RulesGuide } from '@/components/home/guides';
 import ShoutOverlay from '@/components/ShoutOverlay';
 import { updateGame, openTile } from '@/lib/db';
 import { playAnthem } from '@/lib/anthem';
@@ -28,6 +30,7 @@ export default function HostPage({
   const [questions, setQuestions] = useState<Question[]>([]);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const lastWinAt = useRef<number | null>(null);
 
   useEffect(() => {
@@ -173,6 +176,14 @@ export default function HostPage({
       >
         🛠
       </button>
+      <button
+        onClick={() => setRulesOpen(true)}
+        aria-label="Open the game rules"
+        title="Game rules — scoring, wildcards, Final Wager"
+        className="fixed right-[4.25rem] top-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border border-indigo-700 bg-indigo-900/80 text-lg shadow-lg backdrop-blur transition hover:bg-indigo-800 active:scale-95"
+      >
+        📖
+      </button>
       <a
         href={`/leaderboard/${roomCode}`}
         target="_blank"
@@ -190,6 +201,15 @@ export default function HostPage({
       </span>
       {(game.status === 'in_progress' || game.status === 'final_round') && (
         <ShoutOverlay roomCode={roomCode} />
+      )}
+      {rulesOpen && (
+        <GuideModal
+          kicker="The rulebook"
+          title="Game Rules"
+          onClose={() => setRulesOpen(false)}
+        >
+          <RulesGuide />
+        </GuideModal>
       )}
       {adminOpen && (
         <AdminPanel
