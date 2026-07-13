@@ -39,6 +39,13 @@ file is for working on the code.
   `pointScale[0]`; wildcard density ≈ tiles/7 clamped 1–6 (explicit
   wildcardCount is no longer honored); per-player `stats` counters bump
   atomically during judging and archive into game_results.
+- **Verdict reveal** (2026-07-13): every board-round ✓/✗ writes
+  `game.verdictReveal`; the stage plays 3..2..1 then the result with a meme
+  GIF (`components/host/VerdictReveal.tsx`). GIFs are curated Giphy CDN
+  hotlinks in `lib/memes.ts` — each id was HTTP-checked and eyeballed;
+  broken links fall back to emoji. Mounted for in_progress AND final_round
+  so the last tile's reveal survives the auto phase transition. Not used in
+  lightning (pace) or final-round batch judging.
 - **Hosting: Cloudflare Workers** via OpenNext adapter. Deploys happen ONLY
   through CI (`.github/workflows/deploy.yml`: tsc → lint → vitest → deploy on
   push to main). Manual fallback: `npm run deploy` with `.env.cloudflare`.

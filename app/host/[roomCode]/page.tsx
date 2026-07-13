@@ -14,6 +14,7 @@ import AdminPanel from '@/components/host/AdminPanel';
 import GuideModal from '@/components/home/GuideModal';
 import { RulesGuide } from '@/components/home/guides';
 import ShoutOverlay from '@/components/ShoutOverlay';
+import VerdictReveal from '@/components/host/VerdictReveal';
 import { updateGame, openTile } from '@/lib/db';
 import { playAnthem } from '@/lib/anthem';
 import { ensureSoundEnabled } from '@/lib/lpSound';
@@ -201,6 +202,11 @@ export default function HostPage({
       </span>
       {(game.status === 'in_progress' || game.status === 'final_round') && (
         <ShoutOverlay roomCode={roomCode} />
+      )}
+      {/* also mounted during final_round so the last board tile's reveal
+          survives the automatic phase transition */}
+      {(game.status === 'in_progress' || game.status === 'final_round') && (
+        <VerdictReveal game={game} />
       )}
       {rulesOpen && (
         <GuideModal

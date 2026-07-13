@@ -14,7 +14,9 @@ import {
   updateStage,
   recordWin,
   bumpPlayerStats,
+  announceVerdict,
 } from './db';
+import { randomVerdictGif } from './memes';
 
 // Shared judging actions used by both the stage (TV) and the host console.
 // All state lives in Firestore, so whichever surface calls these, both
@@ -41,6 +43,8 @@ export async function judgeCorrect(
 ): Promise<void> {
   const stage = game.stage!;
   void bumpPlayerStats(player.id, { correct: 1 }).catch(() => {});
+  // Kick off the stage's 3..2..1 + meme reveal before the scores move.
+  await announceVerdict(game.roomCode, player, true, randomVerdictGif(true));
   if (tile.wildcardType === 'daily_double') {
     await updatePlayerScore(player.id, resolveDailyDouble(player.score, stage.ddWager, true));
     await finishTile(game.roomCode, tile, question, player.id);
@@ -70,6 +74,7 @@ export async function judgeWrong(
 ): Promise<void> {
   const stage = game.stage!;
   void bumpPlayerStats(player.id, { wrong: 1 }).catch(() => {});
+  await announceVerdict(game.roomCode, player, false, randomVerdictGif(false));
   if (tile.wildcardType === 'daily_double') {
     await updatePlayerScore(player.id, resolveDailyDouble(player.score, stage.ddWager, false));
     await finishTile(game.roomCode, tile, question);

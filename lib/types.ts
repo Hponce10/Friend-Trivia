@@ -48,6 +48,17 @@ export interface StageState {
   timerDuration: number;
 }
 
+// One judged answer's dramatic reveal: the stage plays 3..2..1 then shows
+// the verdict with a meme GIF. Written on every board-round judgment; the
+// stage ignores stale entries via the `at` timestamp.
+export interface VerdictReveal {
+  playerId: string;
+  name: string;
+  correct: boolean;
+  gifUrl: string;
+  at: number;
+}
+
 // Lightning round: rapid-fire buzzing through the unused question pool,
 // run between the board and the Final Wager. Lives on the game doc so
 // stage, console, and phones all follow along.
@@ -82,6 +93,8 @@ export interface Game {
   finalRound?: FinalRoundState | null;
   // Non-null while a lightning round is running (status stays final_round).
   lightning?: LightningState | null;
+  // Latest judged answer — the stage plays a countdown + meme reveal.
+  verdictReveal?: VerdictReveal | null;
   // Last scoring win — the stage watches this to play victory anthems,
   // no matter which surface (stage or console) did the judging.
   lastWin?: { playerId: string; at: number } | null;

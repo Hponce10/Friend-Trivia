@@ -309,6 +309,24 @@ export async function recordWin(roomCode: string, playerId: string): Promise<voi
   });
 }
 
+// Publish a judged answer for the stage's countdown + meme reveal.
+export async function announceVerdict(
+  roomCode: string,
+  player: Player,
+  correct: boolean,
+  gifUrl: string
+): Promise<void> {
+  await updateDoc(doc(db, 'games', roomCode), {
+    verdictReveal: {
+      playerId: player.id,
+      name: player.name,
+      correct,
+      gifUrl,
+      at: Date.now(),
+    },
+  });
+}
+
 /* ---- Final round (wagers come from player phones) ---- */
 
 export async function startFinalRound(
