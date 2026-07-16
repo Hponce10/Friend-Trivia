@@ -16,6 +16,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { recordEvent } from './recorder';
 import {
   Anthem,
   Answer,
@@ -176,6 +177,19 @@ export async function updateGame(
   updates: Partial<Game>
 ): Promise<void> {
   await updateDoc(doc(db, 'games', roomCode), updates);
+  // Status transitions are replay segment boundaries — logged centrally so
+  // every surface (stage, console, admin jumps) is covered once. The
+  // abandoned-game path sets `archived` in the same write AFTER its record
+  // is already compiled; logging then would recreate a swept event doc.
+  if (updates.status && !updates.archived) {
+    if (updates.status === 'in_progress') {
+      recordEvent(roomCode, 'game_start');
+    } else if (updates.status === 'final_round') {
+      recordEvent(roomCode, 'round_change', { phase: 'final' });
+    } else if (updates.status === 'completed') {
+      recordEvent(roomCode, 'game_end', {}, updates.finalScores ?? undefined);
+    }
+  }
 }
 
 export async function updatePlayerScore(
@@ -288,6 +302,12 @@ export async function openTile(roomCode: string, tile: Tile, currentRound: numbe
     buzzerRound: currentRound + 1,
   });
   await batch.commit();
+  recordEvent(roomCode, 'clue_selected', {
+    tileId: tile.id,
+    ownerPlayerId: tile.ownerPlayerId,
+    pointValue: tile.pointValue,
+    wildcardType: tile.wildcardType,
+  });
 }
 
 export async function updateStage(
@@ -297,6 +317,17 @@ export async function updateStage(
   const dotted: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(updates)) dotted[`stage.${k}`] = v;
   await updateDoc(doc(db, 'games', roomCode), dotted);
+  // Daily Double beats: who's answering, and for how much. (Timer and step
+  // churn also flows through here — deliberately not recorded.)
+  if (updates.ddPlayerId) {
+    recordEvent(roomCode, 'wildcard_used', {
+      kind: 'daily_double_pick',
+      playerId: updates.ddPlayerId,
+    });
+  }
+  if (typeof updates.ddWager === 'number' && updates.ddWager > 0) {
+    recordEvent(roomCode, 'wager_set', { amount: updates.ddWager });
+  }
 }
 
 export async function closeStage(roomCode: string): Promise<void> {
@@ -343,6 +374,11 @@ export async function startFinalRound(
     finalRound: { step: 'wagers', ...question },
   });
   await batch.commit();
+  recordEvent(roomCode, 'round_change', {
+    phase: 'final',
+    questionText: question.questionText,
+    answerText: question.answerText,
+  });
 }
 
 export async function updateFinalRound(
@@ -354,8 +390,13 @@ export async function updateFinalRound(
   await updateDoc(doc(db, 'games', roomCode), dotted);
 }
 
-export async function setFinalWager(playerId: string, amount: number): Promise<void> {
-  await updateDoc(doc(db, 'players', playerId), { finalWager: amount });
+export async function setFinalWager(player: Player, amount: number): Promise<void> {
+  await updateDoc(doc(db, 'players', player.id), { finalWager: amount });
+  recordEvent(player.roomCode, 'final_wager_placed', {
+    playerId: player.id,
+    name: player.name,
+    amount,
+  });
 }
 
 /* ---- Lightning round ---- */
@@ -367,6 +408,11 @@ export async function startLightning(
 ): Promise<void> {
   const lightning: LightningState = { questionIds, index: 0, endsAt: null, perCorrect };
   await updateDoc(doc(db, 'games', roomCode), { lightning });
+  recordEvent(roomCode, 'round_change', {
+    phase: 'lightning',
+    questionCount: questionIds.length,
+    perCorrect,
+  });
 }
 
 export async function updateLightning(
@@ -380,6 +426,7 @@ export async function updateLightning(
 
 export async function endLightning(roomCode: string): Promise<void> {
   await updateDoc(doc(db, 'games', roomCode), { lightning: null, buzzerArmed: false });
+  recordEvent(roomCode, 'round_change', { phase: 'final', reason: 'lightning_over' });
 }
 
 /* ---- Phone companion: buzzers & shouts ---- */

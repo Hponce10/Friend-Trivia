@@ -2,20 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import { Game, Player, Question } from '@/lib/types';
+import { pickFinalRoundQuestion, pickLightningQuestions } from '@/lib/gameLogic';
 import {
-  pickFinalRoundQuestion,
-  pickLightningQuestions,
-  resolveDailyDouble,
-} from '@/lib/gameLogic';
-import {
-  updatePlayerScore,
-  updateGame,
-  markQuestionUsed,
   startFinalRound,
   startLightning,
   updateFinalRound,
   setFinalWager,
 } from '@/lib/db';
+import { completeFinalRound } from '@/lib/judging';
 import Avatar from '@/components/Avatar';
 import LightningRound from './LightningRound';
 
@@ -54,22 +48,14 @@ export default function FinalRound({ game, players, questions }: Props) {
 
   async function forceMissingToZero() {
     await Promise.all(
-      players.filter((p) => p.finalWager == null).map((p) => setFinalWager(p.id, 0))
+      players.filter((p) => p.finalWager == null).map((p) => setFinalWager(p, 0))
     );
   }
 
   async function applyResults() {
     if (!fr) return;
     setResolving(true);
-    // finalScores rides the same write as status='completed' so the archive
-    // never reads a players snapshot that predates the wager updates.
-    const finalScores: Record<string, number> = {};
-    for (const p of players) {
-      finalScores[p.id] = resolveDailyDouble(p.score, p.finalWager ?? 0, verdicts[p.id] ?? false);
-    }
-    await Promise.all(players.map((p) => updatePlayerScore(p.id, finalScores[p.id])));
-    if (fr.poolId) await markQuestionUsed(fr.poolId);
-    await updateGame(game.roomCode, { status: 'completed', finalRound: null, finalScores });
+    await completeFinalRound(game, players, verdicts);
   }
 
   // Lightning takes over the whole final-round screen while it runs.

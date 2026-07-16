@@ -461,7 +461,7 @@ export default function QuestionModal({ game, tile, question, players }: Props) 
             <button
               onClick={() =>
                 withResolving(() =>
-                  applyEveryoneAnswers(game, tile, question, players, eaVerdicts)
+                  applyEveryoneAnswers(game, tile, question, players, eaVerdicts, roundAnswers)
                 )
               }
               disabled={

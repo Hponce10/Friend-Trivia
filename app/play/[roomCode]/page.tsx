@@ -220,7 +220,7 @@ export default function PlayPage({
               <WagerInput
                 label="Your secret wager"
                 max={Math.max(me.score, game.settings.pointScale[0])}
-                onConfirm={(amount) => setFinalWager(me.id, amount)}
+                onConfirm={(amount) => setFinalWager(me, amount)}
               />
             </>
           ) : (

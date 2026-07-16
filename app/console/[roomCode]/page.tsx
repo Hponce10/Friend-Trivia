@@ -14,8 +14,6 @@ import {
   writeTiles,
   updateFinalRound,
   setFinalWager,
-  updatePlayerScore,
-  markQuestionUsed,
 } from '@/lib/db';
 import {
   judgeCorrect,
@@ -25,8 +23,10 @@ import {
   performSwap,
   nobodyGotIt,
   applyEveryoneAnswers,
+  completeFinalRound,
 } from '@/lib/judging';
-import { generateBoard, settingsForGroup, resolveDailyDouble } from '@/lib/gameLogic';
+import { trackPlayersForRecorder } from '@/lib/recorder';
+import { generateBoard, settingsForGroup } from '@/lib/gameLogic';
 import { Answer, Game, Player, Question, Tile } from '@/lib/types';
 import { WILDCARD_INFO } from '@/components/host/QuestionModal';
 import BuzzerPanel from '@/components/host/BuzzerPanel';
@@ -59,7 +59,11 @@ export default function ConsolePage({
   useEffect(() => {
     const unsubs = [
       watchGame(roomCode, setGame),
-      watchPlayers(roomCode, setPlayers),
+      watchPlayers(roomCode, (ps) => {
+        // Feed the replay recorder so judged events carry full score snapshots.
+        trackPlayersForRecorder(roomCode, ps);
+        setPlayers(ps);
+      }),
       watchQuestions(roomCode, setQuestions),
       watchTiles(roomCode, setTiles),
     ];
@@ -625,7 +629,7 @@ function ConsoleQuestion({
           </ul>
           <button
             onClick={() =>
-              run(() => applyEveryoneAnswers(game, tile, question, players, eaVerdicts))
+              run(() => applyEveryoneAnswers(game, tile, question, players, eaVerdicts, roundAnswers))
             }
             disabled={
               resolving || roundAnswers.some((a) => eaVerdicts[a.playerId] === undefined)
@@ -732,14 +736,7 @@ function ConsoleFinal({
   async function applyResults() {
     if (!fr) return;
     setResolving(true);
-    // Same atomic finalScores handoff as the stage — see FinalRound.tsx.
-    const finalScores: Record<string, number> = {};
-    for (const p of players) {
-      finalScores[p.id] = resolveDailyDouble(p.score, p.finalWager ?? 0, verdicts[p.id] ?? false);
-    }
-    await Promise.all(players.map((p) => updatePlayerScore(p.id, finalScores[p.id])));
-    if (fr.poolId) await markQuestionUsed(fr.poolId);
-    await updateGame(game.roomCode, { status: 'completed', finalRound: null, finalScores });
+    await completeFinalRound(game, players, verdicts);
   }
 
   // Lightning round: full controls with the private answer visible.
@@ -812,7 +809,7 @@ function ConsoleFinal({
             <button
               onClick={() =>
                 Promise.all(
-                  players.filter((p) => p.finalWager == null).map((p) => setFinalWager(p.id, 0))
+                  players.filter((p) => p.finalWager == null).map((p) => setFinalWager(p, 0))
                 )
               }
               className="mt-2 w-full text-center text-sm text-indigo-400 underline-offset-4 hover:underline"

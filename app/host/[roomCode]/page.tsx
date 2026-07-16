@@ -16,6 +16,7 @@ import { RulesGuide } from '@/components/home/guides';
 import ShoutOverlay from '@/components/ShoutOverlay';
 import VerdictReveal from '@/components/host/VerdictReveal';
 import { updateGame, openTile } from '@/lib/db';
+import { trackPlayersForRecorder } from '@/lib/recorder';
 import { playAnthem } from '@/lib/anthem';
 import { ensureSoundEnabled } from '@/lib/lpSound';
 
@@ -37,7 +38,11 @@ export default function HostPage({
   useEffect(() => {
     const unsubs = [
       watchGame(roomCode, setGame),
-      watchPlayers(roomCode, setPlayers),
+      watchPlayers(roomCode, (ps) => {
+        // Feed the replay recorder so judged events carry full score snapshots.
+        trackPlayersForRecorder(roomCode, ps);
+        setPlayers(ps);
+      }),
       watchQuestions(roomCode, setQuestions),
       watchTiles(roomCode, setTiles),
     ];
@@ -158,7 +163,14 @@ export default function HostPage({
       content = <FinalRound game={game} players={sortedPlayers} questions={questions} />;
       break;
     case 'completed':
-      content = <ResultsScreen game={game} players={sortedPlayers} />;
+      content = (
+        <ResultsScreen
+          game={game}
+          players={sortedPlayers}
+          tiles={tiles}
+          questions={questions}
+        />
+      );
       break;
   }
 
