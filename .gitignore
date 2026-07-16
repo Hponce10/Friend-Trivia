@@ -44,3 +44,6 @@ next-env.d.ts
 .open-next/
 cloudflare-env.d.ts
 .wrangler/
+
+# session handoff notes (agent-to-agent, not project docs)
+HANDOFF.md
