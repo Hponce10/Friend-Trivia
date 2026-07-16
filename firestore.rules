@@ -59,6 +59,14 @@ service cloud.firestore {
       allow delete: if true; // host sweeps old rounds
     }
 
+    // Live replay event log — one doc per game, appended during play and
+    // swept after the finished record is archived to Supabase.
+    match /gameEvents/{roomCode} {
+      allow read: if true;
+      allow create, update: if gameExists(roomCode);
+      allow delete: if true; // swept post-archive, like buzzes
+    }
+
     match /shouts/{shoutId} {
       allow read: if true;
       allow create: if gameExists(request.resource.data.roomCode)
