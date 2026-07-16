@@ -1,15 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { fetchHallOfFame, archiveEnabled, closeSeason, HallOfFame } from '@/lib/archive';
+import Link from 'next/link';
+import {
+  fetchHallOfFame,
+  fetchGameRecordCards,
+  archiveEnabled,
+  closeSeason,
+  HallOfFame,
+  GameRecordCard,
+} from '@/lib/archive';
 import Avatar from '@/components/Avatar';
 import HomeLink from '@/components/HomeLink';
 
 // The Hall of Fame: career stats and all-time records across every game
-// night, read from the Supabase archive.
+// night, read from the Supabase archive. Game nights with a saved replay
+// record link into /replay/[id]; unfinished (ended-early) games appear in
+// their own strip until the retention sweep removes them.
 
 export default function HistoryPage() {
   const [hall, setHall] = useState<HallOfFame | null | 'loading' | 'error'>('loading');
+  const [records, setRecords] = useState<GameRecordCard[]>([]);
   const [closing, setClosing] = useState(false);
   const [crowned, setCrowned] = useState<string | null>(null);
 
@@ -23,9 +34,19 @@ export default function HistoryPage() {
       fetchHallOfFame()
         .then((h) => setHall(h))
         .catch(() => setHall('error'));
+      // Replay availability is progressive enhancement — failure just means
+      // no ▶ buttons.
+      fetchGameRecordCards()
+        .then(setRecords)
+        .catch(() => {});
     }, 0);
     return () => clearTimeout(id);
   }, []);
+
+  const recordByGameId = new Map(
+    records.filter((r) => r.gameId).map((r) => [r.gameId as string, r])
+  );
+  const abandoned = records.filter((r) => r.status === 'abandoned');
 
   async function handleCloseSeason() {
     if (
@@ -255,31 +276,100 @@ export default function HistoryPage() {
               Recent game nights
             </h2>
             <ul className="flex flex-col gap-2">
-              {hall.recentGames.map((g) => (
-                <li
-                  key={`${g.roomCode}-${g.playedAt}`}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl bg-indigo-900/70 px-4 py-3 ring-1 ring-indigo-700/50"
-                >
-                  <span className="font-display text-lg tracking-widest text-amber-400">
-                    {g.roomCode}
-                  </span>
-                  <span className="text-xs text-indigo-400">
-                    {g.playedAt} · {g.playerCount} players
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-right text-sm text-indigo-200">
-                    {g.podium.map((p, i) => (
-                      <span key={p.name} className="ml-3 whitespace-nowrap">
-                        {['🥇', '🥈', '🥉'][i]} {p.name}{' '}
-                        <span className="font-mono text-indigo-400">{p.score}</span>
-                      </span>
-                    ))}
-                  </span>
-                </li>
-              ))}
+              {hall.recentGames.map((g) => {
+                const record = recordByGameId.get(g.gameId);
+                return (
+                  <li
+                    key={g.gameId}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl bg-indigo-900/70 px-4 py-3 ring-1 ring-indigo-700/50"
+                  >
+                    <span className="font-display text-lg tracking-widest text-amber-400">
+                      {g.roomCode}
+                    </span>
+                    <span className="text-xs text-indigo-400">
+                      {g.playedAt} · {g.playerCount} players
+                      {record?.durationMs != null &&
+                        ` · ${Math.max(1, Math.round(record.durationMs / 60000))} min`}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-right text-sm text-indigo-200">
+                      {g.podium.map((p, i) => (
+                        <span key={p.name} className="ml-3 whitespace-nowrap">
+                          {['🥇', '🥈', '🥉'][i]} {p.name}{' '}
+                          <span className="font-mono text-indigo-400">{p.score}</span>
+                        </span>
+                      ))}
+                    </span>
+                    {record && (
+                      <Link
+                        href={`/replay/${record.id}`}
+                        className="rounded-full bg-gradient-to-b from-amber-300 to-amber-400 px-3 py-1 text-xs font-bold text-indigo-950 transition hover:brightness-105 active:scale-95"
+                        title="Re-watch this game turn by turn"
+                      >
+                        ▶ Replay
+                      </Link>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
+
+          <AbandonedStrip records={abandoned} />
+        </div>
+      )}
+
+      {/* Ended-early games still show even before the first real game night
+          makes it into the books. */}
+      {hall !== 'loading' && hall !== null && hall !== 'error' && hall.totalGames === 0 && (
+        <div className="mt-10 w-full max-w-3xl pb-16">
+          <AbandonedStrip records={abandoned} />
         </div>
       )}
     </div>
+  );
+}
+
+function AbandonedStrip({ records }: { records: GameRecordCard[] }) {
+  if (records.length === 0) return null;
+  return (
+    <section className="anim-rise-in" style={{ animationDelay: '300ms' }}>
+      <h2 className="mb-3 text-center text-xs font-semibold uppercase tracking-[0.25em] text-indigo-400">
+        Unfinished games
+      </h2>
+      <ul className="flex flex-col gap-2">
+        {records.map((r) => (
+          <li
+            key={r.id}
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl bg-indigo-950/70 px-4 py-3 ring-1 ring-indigo-800/60"
+          >
+            <span className="font-display text-lg tracking-widest text-indigo-300">
+              {r.roomCode}
+            </span>
+            <span className="text-xs text-indigo-500">
+              🌙 ended early ·{' '}
+              {new Date(r.playedAt).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+              })}
+              {r.daysLeft !== null &&
+                ` · disappears in ${r.daysLeft} ${r.daysLeft === 1 ? 'day' : 'days'}`}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-right text-sm text-indigo-300">
+              {r.summary.players.slice(0, 3).map((p) => (
+                <span key={p.id} className="ml-3 whitespace-nowrap">
+                  {p.name} <span className="font-mono text-indigo-500">{p.score}</span>
+                </span>
+              ))}
+            </span>
+            <Link
+              href={`/replay/${r.id}`}
+              className="rounded-full border border-indigo-600 px-3 py-1 text-xs font-bold text-indigo-300 transition hover:bg-indigo-800/60 hover:text-white active:scale-95"
+            >
+              ▶ Replay
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

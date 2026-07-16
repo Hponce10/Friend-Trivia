@@ -2,23 +2,27 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Game, Player } from '@/lib/types';
+import { Game, Player, Question, Tile } from '@/lib/types';
 import { playAnthem } from '@/lib/anthem';
-import { archiveGame } from '@/lib/archive';
+import { archiveGame, archiveGameRecord } from '@/lib/archive';
 import { updateGame } from '@/lib/db';
+import { compileGameRecord } from '@/lib/replay';
+import { fetchEvents, flushEvents, deleteEvents } from '@/lib/recorder';
 import { shareRecap } from '@/lib/recap';
 import Avatar from '@/components/Avatar';
 
 interface Props {
   game: Game;
   players: Player[];
+  tiles: Tile[];
+  questions: Question[];
 }
 
 const PODIUM_ORDER = [1, 0, 2]; // display 2nd, 1st, 3rd
 const PODIUM_HEIGHTS = ['h-24', 'h-36', 'h-16'];
 const PODIUM_MEDALS = ['🥈', '🥇', '🥉'];
 
-export default function ResultsScreen({ game, players }: Props) {
+export default function ResultsScreen({ game, players, tiles, questions }: Props) {
   const [recapState, setRecapState] = useState<
     'idle' | 'rendering' | 'downloaded' | 'error'
   >('idle');
@@ -36,13 +40,35 @@ export default function ResultsScreen({ game, players }: Props) {
 
   // Fire-and-forget Hall of Fame archive — one write per game, guarded by
   // game.archived. Failure (paused project, offline) never affects results.
+  // Alongside the career stats, the full replay record is compiled from the
+  // live event log and stored in one Supabase row; the Firestore event doc
+  // is swept afterwards. Any missing piece degrades to a coarser record —
+  // it never blocks the podium.
   const archiveTried = useRef(false);
   useEffect(() => {
     if (archiveTried.current || game.archived || players.length === 0) return;
     archiveTried.current = true;
-    archiveGame(game, sorted)
-      .then(() => updateGame(game.roomCode, { archived: true }))
-      .catch(() => {});
+    const run = async () => {
+      // Give other surfaces (the console that judged the final) a beat to
+      // flush their buffered events before we read the log.
+      await flushEvents();
+      await new Promise((r) => setTimeout(r, 2500));
+      const gameId = await archiveGame(game, sorted);
+      const events = await fetchEvents(game.roomCode).catch(() => []);
+      const record = compileGameRecord({
+        game,
+        players: sorted,
+        tiles,
+        questions,
+        events,
+        status: 'completed',
+        endedAt: Date.now(),
+      });
+      await archiveGameRecord(record, gameId);
+      await deleteEvents(game.roomCode);
+      await updateGame(game.roomCode, { archived: true });
+    };
+    run().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [players.length]);
 

@@ -9,6 +9,14 @@ import {
   reopenTile,
   removePlayerCascade,
 } from '@/lib/db';
+import {
+  recordEvent,
+  flushEvents,
+  fetchEvents,
+  deleteEvents,
+} from '@/lib/recorder';
+import { compileGameRecord } from '@/lib/replay';
+import { archiveGameRecord, ABANDONED_RETENTION_DAYS } from '@/lib/archive';
 import AddPlayerForm from './AddPlayerForm';
 
 interface Props {
@@ -20,7 +28,47 @@ interface Props {
 }
 
 export default function AdminPanel({ game, players, questions, tiles, onClose }: Props) {
+  const [ending, setEnding] = useState(false);
   const usedTiles = tiles.filter((t) => t.status === 'used');
+
+  // Bail on the whole night: freeze standings, keep the unfinished game
+  // browsable in History for a while (it never touches the Hall of Fame —
+  // that archive is guarded off by setting `archived` up front).
+  async function endGameEarly() {
+    if (
+      !window.confirm(
+        `End this game night early? Standings freeze as they are. The unfinished game stays in History for ${ABANDONED_RETENTION_DAYS} days, but never counts toward the Hall of Fame.`
+      )
+    )
+      return;
+    setEnding(true);
+    try {
+      recordEvent(
+        game.roomCode,
+        'game_end',
+        { abandoned: true },
+        Object.fromEntries(players.map((p) => [p.id, p.score]))
+      );
+      await flushEvents();
+      const events = await fetchEvents(game.roomCode).catch(() => []);
+      const record = compileGameRecord({
+        game,
+        players,
+        tiles,
+        questions,
+        events,
+        status: 'abandoned',
+        endedAt: Date.now(),
+      });
+      await archiveGameRecord(record, null);
+      await deleteEvents(game.roomCode);
+    } catch {
+      // The archive being down shouldn't trap the host in a dead game.
+    }
+    await updateGame(game.roomCode, { status: 'completed', archived: true });
+    setEnding(false);
+    onClose();
+  }
   // A fully-used board would auto-advance right back to the final round —
   // reopening a tile first is what makes returning to the board meaningful.
   const boardPlayable = tiles.some((t) => t.status !== 'used');
@@ -82,7 +130,7 @@ export default function AdminPanel({ game, players, questions, tiles, onClose }:
           </h3>
           <ul className="mt-2 flex flex-col gap-2">
             {players.map((p) => (
-              <ScoreRow key={p.id} player={p} />
+              <ScoreRow key={p.id} roomCode={game.roomCode} player={p} />
             ))}
           </ul>
           <AddPlayerForm roomCode={game.roomCode} players={players} />
@@ -175,6 +223,27 @@ export default function AdminPanel({ game, players, questions, tiles, onClose }:
           </div>
         </section>
 
+        {/* End the night early */}
+        {(game.status === 'in_progress' || game.status === 'final_round') && (
+          <section className="mt-8">
+            <h3 className="text-sm font-semibold uppercase tracking-widest text-red-400">
+              End game early
+            </h3>
+            <p className="mt-1 text-xs text-indigo-500">
+              Freeze the standings and call it a night. The unfinished game
+              stays in History for {ABANDONED_RETENTION_DAYS} days (it never
+              enters the Hall of Fame).
+            </p>
+            <button
+              onClick={endGameEarly}
+              disabled={ending}
+              className="mt-2 w-full rounded-xl border border-red-900 px-4 py-2.5 text-sm font-medium text-red-300 transition hover:bg-red-950 disabled:opacity-50"
+            >
+              {ending ? 'Wrapping up…' : '🌙 End the game night early'}
+            </button>
+          </section>
+        )}
+
         {/* Remove player */}
         <section className="mt-8 pb-8">
           <h3 className="text-sm font-semibold uppercase tracking-widest text-red-400">
@@ -232,13 +301,31 @@ function ConsoleLink({ game }: { game: Game }) {
   );
 }
 
-function ScoreRow({ player }: { player: Player }) {
+function ScoreRow({ roomCode, player }: { roomCode: string; player: Player }) {
   const [draft, setDraft] = useState(String(player.score));
   const parsed = parseInt(draft, 10);
   const dirty = !isNaN(parsed) && parsed !== player.score;
 
+  // Manual corrections show up in the replay too — otherwise its running
+  // scores silently drift from what the room actually saw.
+  async function setScore(newScore: number) {
+    await updatePlayerScore(player.id, newScore);
+    recordEvent(
+      roomCode,
+      'score_change',
+      {
+        playerId: player.id,
+        name: player.name,
+        delta: newScore - player.score,
+        newScore,
+        reason: 'admin',
+      },
+      { [player.id]: newScore }
+    );
+  }
+
   async function bump(delta: number) {
-    await updatePlayerScore(player.id, player.score + delta);
+    await setScore(player.score + delta);
     setDraft(String(player.score + delta));
   }
 
@@ -267,7 +354,7 @@ function ScoreRow({ player }: { player: Player }) {
         +100
       </button>
       <button
-        onClick={() => dirty && updatePlayerScore(player.id, parsed)}
+        onClick={() => dirty && setScore(parsed)}
         disabled={!dirty}
         className="min-h-11 rounded-lg bg-amber-400 px-2.5 text-sm font-semibold text-indigo-950 transition hover:bg-amber-300 active:scale-95 disabled:opacity-30"
       >

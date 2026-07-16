@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Game, Player } from './types';
+import { GameRecord, summarizeRecord, GameRecordSummaryData } from './replay';
 
 // The Hall of Fame archive lives on Supabase (Postgres) — one write per
 // completed game, powering career stats across game nights. The live game
@@ -23,10 +24,11 @@ export function archiveEnabled(): boolean {
 /** Archive a finished game: upsert player profiles (identity = name,
     case-insensitive), insert the game and each player's result. Idempotent
     via the (room_code, source_created_at) unique key. Throws on failure —
-    callers treat this as fire-and-forget. */
-export async function archiveGame(game: Game, players: Player[]): Promise<void> {
+    callers treat this as fire-and-forget. Returns the Supabase game id so
+    the replay record can link to it. */
+export async function archiveGame(game: Game, players: Player[]): Promise<string | null> {
   const sb = supabase();
-  if (!sb || players.length === 0) return;
+  if (!sb || players.length === 0) return null;
 
   // 1. Profiles — update the photo when a newer one exists.
   const profileRows = players.map((p) => ({
@@ -105,6 +107,111 @@ export async function archiveGame(game: Game, players: Player[]): Promise<void> 
     .from('game_results')
     .upsert(resultRows, { onConflict: 'game_id,profile_id' });
   if (rErr) throw rErr;
+  return gameRow.id as string;
+}
+
+/* ---- Game records (full replay logs) ---- */
+
+// How long an ended-early game stays browsable before the sweep removes it.
+// Completed game nights are permanent (RLS only allows deleting abandoned
+// rows).
+export const ABANDONED_RETENTION_DAYS = 30;
+
+/** Persist the compiled replay record — one row, one read per replay.
+    `gameId` links to the Hall of Fame games row for completed games; it is
+    null for abandoned games, which never enter the Hall of Fame. Idempotent
+    on (room_code, source_created_at). */
+export async function archiveGameRecord(
+  record: GameRecord,
+  gameId: string | null
+): Promise<void> {
+  const sb = supabase();
+  if (!sb) return;
+  const { error } = await sb.from('game_records').upsert(
+    {
+      game_id: gameId,
+      room_code: record.roomCode,
+      source_created_at: record.createdAt,
+      status: record.status,
+      started_at: record.startedAt,
+      ended_at: record.endedAt,
+      duration_ms: record.durationMs,
+      summary: summarizeRecord(record),
+      record,
+    },
+    { onConflict: 'room_code,source_created_at' }
+  );
+  if (error) throw error;
+}
+
+export interface GameRecordCard {
+  id: string;
+  gameId: string | null;
+  roomCode: string;
+  status: 'completed' | 'abandoned';
+  playedAt: string; // ISO
+  durationMs: number | null;
+  summary: GameRecordSummaryData;
+  /** Days until an abandoned record is swept; null for completed ones. */
+  daysLeft: number | null;
+}
+
+/** History-list cards: summaries only, never the full event logs. Also
+    opportunistically sweeps abandoned records past their retention window —
+    if the sweep fails they're filtered out of the result anyway. */
+export async function fetchGameRecordCards(): Promise<GameRecordCard[]> {
+  const sb = supabase();
+  if (!sb) return [];
+  const cutoff = new Date(
+    Date.now() - ABANDONED_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  await sb
+    .from('game_records')
+    .delete()
+    .eq('status', 'abandoned')
+    .lt('created_at', cutoff)
+    .then(() => {}, () => {});
+  const { data, error } = await sb
+    .from('game_records')
+    .select('id, game_id, room_code, status, started_at, ended_at, duration_ms, summary, created_at')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? [])
+    .filter((r) => r.status !== 'abandoned' || r.created_at >= cutoff)
+    .map((r) => ({
+      id: r.id as string,
+      gameId: (r.game_id as string | null) ?? null,
+      roomCode: r.room_code as string,
+      status: r.status as 'completed' | 'abandoned',
+      playedAt: r.created_at as string,
+      durationMs: (r.duration_ms as number | null) ?? null,
+      summary: r.summary as GameRecordSummaryData,
+      daysLeft:
+        r.status === 'abandoned'
+          ? Math.max(
+              0,
+              Math.ceil(
+                (new Date(r.created_at as string).getTime() +
+                  ABANDONED_RETENTION_DAYS * 24 * 60 * 60 * 1000 -
+                  Date.now()) /
+                  (24 * 60 * 60 * 1000)
+              )
+            )
+          : null,
+    }));
+}
+
+/** The whole replay in one read. */
+export async function fetchGameRecord(id: string): Promise<GameRecord | null> {
+  const sb = supabase();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from('game_records')
+    .select('record')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.record as GameRecord) ?? null;
 }
 
 /* ---- Hall of Fame reads ---- */
@@ -130,6 +237,7 @@ export interface HallRecord {
 }
 
 export interface RecentGame {
+  gameId: string;
   playedAt: string;
   roomCode: string;
   playerCount: number;
@@ -357,6 +465,7 @@ export async function fetchHallOfFame(): Promise<HallOfFame | null> {
     .sort((a, b) => +new Date(b.meta.played_at) - +new Date(a.meta.played_at))
     .slice(0, 10)
     .map((g) => ({
+      gameId: g.meta.id,
       playedAt: fmt(g.meta.played_at),
       roomCode: g.meta.room_code,
       playerCount: g.meta.player_count,
