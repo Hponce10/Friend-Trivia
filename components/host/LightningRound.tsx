@@ -59,7 +59,13 @@ export default function LightningRound({ game, players, questions, compact = fal
 
   async function advance() {
     if (question) await markQuestionUsed(question.id);
-    await updateLightning(game.roomCode, { index: lightning.index + 1 });
+    const nextId = lightning.questionIds[lightning.index + 1];
+    await updateLightning(game.roomCode, {
+      index: lightning.index + 1,
+      // Keep the phones told whose question is up — their buzzer locks on
+      // their own question.
+      ownerId: questions.find((q) => q.id === nextId)?.ownerPlayerId ?? null,
+    });
     await armBuzzers(game.roomCode, game.buzzerRound ?? 0);
   }
 

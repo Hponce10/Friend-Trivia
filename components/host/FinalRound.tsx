@@ -77,7 +77,12 @@ export default function FinalRound({ game, players, questions }: Props) {
           {lightningPool.length >= 3 && (
             <button
               onClick={() =>
-                startLightning(game.roomCode, lightningPool, game.settings.pointScale[0])
+                startLightning(
+                  game.roomCode,
+                  lightningPool,
+                  game.settings.pointScale[0],
+                  questions.find((q) => q.id === lightningPool[0])?.ownerPlayerId ?? null
+                )
               }
               className="w-full rounded-2xl border-2 border-amber-400/60 px-6 py-4 text-lg font-bold text-amber-300 transition hover:bg-amber-400/10 active:scale-[0.98]"
             >

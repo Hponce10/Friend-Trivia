@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateBoard,
+  rollWildcard,
   resolveNormal,
   resolveDailyDouble,
   resolveDoubleOrNothing,
@@ -10,7 +11,7 @@ import {
   pickLightningQuestions,
   settingsForGroup,
 } from './gameLogic';
-import { Player, Question, GameSettings, DEFAULT_SETTINGS } from './types';
+import { Player, Question, DEFAULT_SETTINGS, WildcardType } from './types';
 
 function makePlayers(n: number): Player[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -60,16 +61,14 @@ describe('generateBoard', () => {
     }
   });
 
-  it('flags exactly wildcardCount tiles with a valid wildcard type', () => {
+  it('bakes NO wildcards into tiles — they roam via rollWildcard at open time', () => {
     const players = makePlayers(6);
     const questions = makeQuestions(players);
-    const settings: GameSettings = { ...DEFAULT_SETTINGS, wildcardCount: 3 };
-    const tiles = generateBoard(players, questions, settings);
-    const wildcardTiles = tiles.filter((t) => t.wildcardType !== null);
-    expect(wildcardTiles.length).toBe(3);
-    for (const tile of wildcardTiles) {
-      expect(settings.enabledWildcards).toContain(tile.wildcardType);
-    }
+    const tiles = generateBoard(players, questions, {
+      ...DEFAULT_SETTINGS,
+      wildcardCount: 3,
+    });
+    expect(tiles.every((t) => t.wildcardType === null)).toBe(true);
   });
 
   it('picks one of the two submitted questions per tier, never both or neither', () => {
@@ -79,6 +78,46 @@ describe('generateBoard', () => {
     expect(tiles.length).toBe(5);
     const tiers = tiles.map((t) => questions.find((q) => q.id === t.questionId)!.tier);
     expect(new Set(tiers).size).toBe(5);
+  });
+});
+
+describe('rollWildcard', () => {
+  const enabled: WildcardType[] = ['daily_double', 'double_or_nothing'];
+
+  it('never rolls with no budget, no hidden tiles, or no enabled types', () => {
+    expect(rollWildcard(0, 10, enabled, () => 0)).toBeNull();
+    expect(rollWildcard(2, 0, enabled, () => 0)).toBeNull();
+    expect(rollWildcard(2, 10, [], () => 0)).toBeNull();
+  });
+
+  it('is guaranteed when as many wildcards remain as hidden tiles', () => {
+    // remaining/hidden === 1 → forced, no matter the rng draw.
+    expect(rollWildcard(3, 3, enabled, () => 0.999999)).not.toBeNull();
+    expect(rollWildcard(5, 3, enabled, () => 0.999999)).not.toBeNull();
+  });
+
+  it('respects the odds and picks only enabled types', () => {
+    // 2 remaining / 10 hidden = 0.2 odds.
+    expect(rollWildcard(2, 10, enabled, () => 0.19)).not.toBeNull();
+    expect(rollWildcard(2, 10, enabled, () => 0.2)).toBeNull();
+    const rolled = rollWildcard(2, 10, enabled, () => 0.1);
+    expect(enabled).toContain(rolled);
+  });
+
+  it('surfaces exactly the budgeted count over a full board, wherever the rng lands', () => {
+    // Simulate opening every tile of a 15-tile board with 2 wildcards, the
+    // way openTile does: roll against remaining/hidden, decrement on a hit.
+    for (let trial = 0; trial < 200; trial++) {
+      let remaining = 2;
+      let rolledCount = 0;
+      for (let hidden = 15; hidden >= 1; hidden--) {
+        if (rollWildcard(remaining, hidden, enabled) !== null) {
+          remaining--;
+          rolledCount++;
+        }
+      }
+      expect(rolledCount).toBe(2);
+    }
   });
 });
 

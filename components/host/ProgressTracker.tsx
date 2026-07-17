@@ -67,7 +67,13 @@ export default function ProgressTracker({ game, players, questions }: Props) {
       const settings = settingsForGroup(game.settings, players.length);
       const tiles = generateBoard(players, questions, settings);
       await writeTiles(tiles);
-      await updateGame(game.roomCode, { status: 'in_progress', settings });
+      // Roaming wildcards: the budget lives on the game and rolls out one
+      // tile-open at a time (see openTile) instead of being baked into tiles.
+      await updateGame(game.roomCode, {
+        status: 'in_progress',
+        settings,
+        wildcardsRemaining: settings.wildcardCount,
+      });
     } catch {
       setError('Board build failed — try again.');
       setBuilding(false);

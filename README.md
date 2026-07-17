@@ -16,12 +16,17 @@ shared host screen runs the board, wildcards, final wager round, and results.
    preview URLs are signed and short-lived, so the app stores only the track
    id and re-resolves the URL at play time.)
 3. The host watches submissions arrive live, then hits **Build the Board** —
-   the game keeps 1 random question of each pair (5 per player) and secretly
-   flags roughly one tile in seven as a wildcard (scaled to group size).
+   the game keeps 1 random question of each pair (5 per player). Roughly one
+   tile in seven is a wildcard (scaled to group size), but they **roam**:
+   nothing is pre-placed — every tile you open rolls fresh odds, so nobody
+   can track where the Daily Double is hiding.
 4. Tiles resolve on the host screen: correct answers award points, wrong
    answers deduct them — but **scores never drop below zero**, and every
    verdict gets a 3‑2‑1 countdown + meme-GIF reveal on the stage. If the
    whole room whiffs, the question's **owner banks the tile** (stump bonus).
+   A question's **subject can't answer it**: their phone buzzer locks on
+   their own tiles (and lightning questions), and the Daily Double picker
+   list skips them — their upside is the stump bonus.
    Wildcards interrupt with their own flow:
    - 🎰 **Daily Double** — only the picker answers, after wagering up to their score
    - ⚡ **Double or Nothing** — first to buzz; correct doubles the tile value, wrong loses double

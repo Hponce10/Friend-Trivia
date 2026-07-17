@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { recordEvent } from './recorder';
+import { rollWildcard } from './gameLogic';
 import {
   Anthem,
   Answer,
@@ -272,6 +273,7 @@ function freshStage(tile: Tile): StageState {
   return {
     activeTileId: tile.id,
     step: tile.wildcardType ? 'wc_reveal' : 'question',
+    subjectId: tile.ownerPlayerId,
     answerRevealed: false,
     ddPlayerId: null,
     ddWager: 0,
@@ -285,28 +287,45 @@ function freshStage(tile: Tile): StageState {
   };
 }
 
-// Open a tile: publish fresh stage state and arm the phone buzzers in the
-// same batch (sweeping stale buzz and typed-answer docs from earlier
-// questions).
-export async function openTile(roomCode: string, tile: Tile, currentRound: number): Promise<void> {
+// Open a tile: roll the roaming wildcard, publish fresh stage state and arm
+// the phone buzzers in the same batch (sweeping stale buzz and typed-answer
+// docs from earlier questions). `hiddenCount` is how many tiles are still
+// hidden INCLUDING this one — it drives the wildcard odds.
+export async function openTile(game: Game, tile: Tile, hiddenCount: number): Promise<void> {
+  const roomCode = game.roomCode;
   const [oldBuzzes, oldAnswers] = await Promise.all([
     getDocs(query(collection(db, 'buzzes'), where('roomCode', '==', roomCode))),
     getDocs(query(collection(db, 'answers'), where('roomCode', '==', roomCode))),
   ]);
+  // Roaming wildcard roll — remaining/hidden odds, so exactly the budgeted
+  // number surface across the board and placement can't be metagamed.
+  // Pre-feature games (no wildcardsRemaining) keep their baked tile types.
+  let effective = tile;
+  const remaining = game.wildcardsRemaining ?? 0;
+  const gameUpdates: Record<string, unknown> = {
+    buzzerArmed: true,
+    buzzerRound: (game.buzzerRound ?? 0) + 1,
+  };
+  if (!tile.wildcardType && remaining > 0) {
+    const rolled = rollWildcard(remaining, hiddenCount, game.settings.enabledWildcards);
+    if (rolled) {
+      effective = { ...tile, wildcardType: rolled };
+      gameUpdates.wildcardsRemaining = remaining - 1;
+    }
+  }
   const batch = writeBatch(db);
   oldBuzzes.docs.forEach((d) => batch.delete(d.ref));
   oldAnswers.docs.forEach((d) => batch.delete(d.ref));
-  batch.update(doc(db, 'games', roomCode), {
-    stage: freshStage(tile),
-    buzzerArmed: true,
-    buzzerRound: currentRound + 1,
-  });
+  if (effective !== tile) {
+    batch.update(doc(db, 'tiles', tile.id), { wildcardType: effective.wildcardType });
+  }
+  batch.update(doc(db, 'games', roomCode), { ...gameUpdates, stage: freshStage(effective) });
   await batch.commit();
   recordEvent(roomCode, 'clue_selected', {
-    tileId: tile.id,
-    ownerPlayerId: tile.ownerPlayerId,
-    pointValue: tile.pointValue,
-    wildcardType: tile.wildcardType,
+    tileId: effective.id,
+    ownerPlayerId: effective.ownerPlayerId,
+    pointValue: effective.pointValue,
+    wildcardType: effective.wildcardType,
   });
 }
 
@@ -404,9 +423,16 @@ export async function setFinalWager(player: Player, amount: number): Promise<voi
 export async function startLightning(
   roomCode: string,
   questionIds: string[],
-  perCorrect: number
+  perCorrect: number,
+  firstOwnerId: string | null
 ): Promise<void> {
-  const lightning: LightningState = { questionIds, index: 0, endsAt: null, perCorrect };
+  const lightning: LightningState = {
+    questionIds,
+    index: 0,
+    endsAt: null,
+    perCorrect,
+    ownerId: firstOwnerId,
+  };
   await updateDoc(doc(db, 'games', roomCode), { lightning });
   recordEvent(roomCode, 'round_change', {
     phase: 'lightning',

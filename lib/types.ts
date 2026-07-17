@@ -34,6 +34,9 @@ export type StageStep =
 export interface StageState {
   activeTileId: string;
   step: StageStep;
+  // Whose question this is — denormalized for the phones (they don't load
+  // tiles), so a player's buzzer can lock on their own question.
+  subjectId?: string | null;
   answerRevealed: boolean;
   ddPlayerId: string | null;
   ddWager: number;
@@ -67,6 +70,9 @@ export interface LightningState {
   index: number;
   endsAt: number | null; // wall-clock; null until the host starts the clock
   perCorrect: number;
+  // Owner of the current question — phones lock their buzzer on their own
+  // question (same reason StageState carries subjectId).
+  ownerId?: string | null;
 }
 
 // Final round, shared the same way. Wagers come from each player's phone.
@@ -105,6 +111,12 @@ export interface Game {
   lastWin?: { playerId: string; at: number } | null;
   // Set once the finished game has been written to the Supabase archive.
   archived?: boolean;
+  // Roaming wildcards: how many are still hiding somewhere on the board.
+  // Wildcards are no longer baked into tiles at build time — each tile
+  // opening rolls remaining/hidden odds, so nobody can metagame placement.
+  // Absent on games built before this feature (their tiles carry baked
+  // wildcardType values and play the old way).
+  wildcardsRemaining?: number;
 }
 
 // A press of the big red button, ordered by server timestamp for fairness.

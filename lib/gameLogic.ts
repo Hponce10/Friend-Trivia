@@ -1,4 +1,4 @@
-import { GameSettings, Player, Question, Tile } from './types';
+import { GameSettings, Player, Question, Tile, WildcardType } from './types';
 
 function shuffle<T>(items: T[]): T[] {
   const arr = [...items];
@@ -56,21 +56,33 @@ export function generateBoard(
         ownerPlayerId: player.id,
         questionId: chosen.id,
         pointValue: settings.pointScale[tier - 1],
+        // Wildcards are NOT baked in at build time — they roam. Each tile
+        // opening rolls rollWildcard() against game.wildcardsRemaining, so
+        // placement can't be metagamed (equivalent to the wildcard moving
+        // to a random hidden tile after every miss).
         wildcardType: null,
         status: 'hidden',
       });
     }
   }
 
-  const wildcardTiles = shuffle(tiles).slice(0, settings.wildcardCount);
-  for (const tile of wildcardTiles) {
-    tile.wildcardType =
-      settings.enabledWildcards[
-        Math.floor(Math.random() * settings.enabledWildcards.length)
-      ];
-  }
-
   return tiles;
+}
+
+// Roaming wildcards: sequential-lottery roll at tile-open time. Drawing
+// with probability remaining/hidden on each open is uniform over the board
+// and guarantees exactly `remaining` wildcards surface by the time the last
+// hidden tile opens (when remaining === hidden the odds hit 1 and the rest
+// are forced out).
+export function rollWildcard(
+  remaining: number,
+  hiddenCount: number,
+  enabled: WildcardType[],
+  rng: () => number = Math.random
+): WildcardType | null {
+  if (remaining <= 0 || hiddenCount <= 0 || enabled.length === 0) return null;
+  if (rng() >= Math.min(1, remaining / hiddenCount)) return null;
+  return enabled[Math.floor(rng() * enabled.length)] ?? enabled[0];
 }
 
 export function resolveNormal(

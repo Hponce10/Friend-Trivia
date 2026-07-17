@@ -153,9 +153,14 @@ export default function QuestionModal({ game, tile, question, players }: Props) 
             <h3 className="font-display text-2xl uppercase tracking-wide text-amber-400">
               Who picked this tile?
             </h3>
-            <p className="text-sm text-indigo-400">Only they get to answer.</p>
+            <p className="text-sm text-indigo-400">
+              Only they get to answer.
+              {owner && ` It's about ${owner.name} — they sit this one out.`}
+            </p>
             <ul className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-              {players.map((p) => (
+              {players
+                .filter((p) => p.id !== tile.ownerPlayerId)
+                .map((p) => (
                 <li key={p.id}>
                   <button
                     onClick={() =>

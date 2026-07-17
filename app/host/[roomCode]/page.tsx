@@ -130,7 +130,7 @@ export default function HostPage({
               onTileClick={(tile) => {
                 // A host gesture: also unlocks WebAudio for the buzz ding.
                 ensureSoundEnabled();
-                void openTile(roomCode, tile, game.buzzerRound ?? 0);
+                void openTile(game, tile, tiles.filter((t) => t.status !== 'used').length);
               }}
             />
           </div>

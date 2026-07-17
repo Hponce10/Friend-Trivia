@@ -225,7 +225,12 @@ function ConsoleLobby({
     setBuilding(true);
     const settings = settingsForGroup(game.settings, players.length);
     await writeTiles(generateBoard(players, questions, settings));
-    await updateGame(game.roomCode, { status: 'in_progress', settings });
+    // Same roaming-wildcard budget handoff as the stage's build button.
+    await updateGame(game.roomCode, {
+      status: 'in_progress',
+      settings,
+      wildcardsRemaining: settings.wildcardCount,
+    });
   }
 
   return (
@@ -310,7 +315,9 @@ function ConsoleBoard({
                 ) : (
                   <button
                     key={t.id}
-                    onClick={() => openTile(game.roomCode, t, game.buzzerRound ?? 0)}
+                    onClick={() =>
+                      openTile(game, t, tiles.filter((x) => x.status !== 'used').length)
+                    }
                     className="flex h-10 w-11 items-center justify-center rounded-lg bg-gradient-to-b from-indigo-600 to-indigo-800 font-display text-sm text-amber-400 ring-1 ring-white/10 transition hover:brightness-115 active:scale-95"
                   >
                     {t.pointValue}
@@ -418,8 +425,10 @@ function ConsoleQuestion({
 
       {stage.step === 'dd_pick' && (
         <PlayerPickList
-          title="Who picked this tile? Only they answer."
-          players={players}
+          title={`Who picked this tile? Only they answer${
+            owner ? ` — ${owner.name} sits their own question out` : ''
+          }.`}
+          players={players.filter((p) => p.id !== tile.ownerPlayerId)}
           onPick={(p) => updateStage(game.roomCode, { ddPlayerId: p.id, step: 'dd_wager' })}
         />
       )}

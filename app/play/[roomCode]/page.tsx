@@ -131,11 +131,17 @@ export default function PlayPage({
   // rounds re-arm the buzzer even though the status is final_round.
   const eaStep =
     game.stage?.step === 'ea_answering' || game.stage?.step === 'ea_judging';
-  const armed =
+  const buzzersLive =
     game.buzzerArmed === true &&
     !eaStep &&
     (game.status === 'in_progress' ||
       (game.status === 'final_round' && game.lightning != null));
+  // Your own question, your buzzer locks — you wrote the answer. (Same rule
+  // Everyone Answers already enforces via eaOwnerId.)
+  const myOwnQuestion =
+    (game.stage != null && game.stage.subjectId === me.id) ||
+    (game.lightning != null && game.lightning.ownerId === me.id);
+  const armed = buzzersLive && !myOwnQuestion;
   const round = game.buzzerRound ?? 0;
   const roundBuzzes = buzzes.filter((b) => b.round === round);
   const myBuzzIndex = roundBuzzes.findIndex((b) => b.playerId === me.id);
@@ -321,6 +327,11 @@ export default function PlayPage({
             </>
           ) : armed ? (
             'BUZZ!'
+          ) : buzzersLive && myOwnQuestion ? (
+            <span className="px-6 text-center font-sans text-base font-semibold normal-case tracking-normal">
+              This one&apos;s about <span className="text-amber-300">you</span> — no
+              buzzing 🤫
+            </span>
           ) : (
             <span className="px-6 text-center font-sans text-base font-semibold normal-case tracking-normal">
               {game.status === 'in_progress'

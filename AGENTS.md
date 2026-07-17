@@ -39,6 +39,15 @@ file is for working on the code.
   `pointScale[0]`; wildcard density ≈ tiles/7 clamped 1–6 (explicit
   wildcardCount is no longer honored); per-player `stats` counters bump
   atomically during judging and archive into game_results.
+- **Roaming wildcards + own-question guards (2026-07-17)**: wildcards are
+  NOT baked into tiles at board build anymore — `game.wildcardsRemaining`
+  holds the budget and `openTile` rolls `rollWildcard(remaining, hidden)`
+  per opened tile (sequential lottery: exact count guaranteed, placement
+  un-metagameable; pre-feature games with baked tile types still play).
+  A question's subject can never answer it: `stage.subjectId` +
+  `lightning.ownerId` lock the phone buzzer on your own question (mirrors
+  `eaOwnerId`), and dd_pick lists exclude the tile owner on both surfaces.
+  Stump-bonus self-picks remain legal strategy by design.
 - **Verdict reveal** (2026-07-13): every board-round ✓/✗ writes
   `game.verdictReveal`; the stage plays 3..2..1 then the result with a meme
   GIF (`components/host/VerdictReveal.tsx`). GIFs are curated Giphy CDN
